@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Charts
 import GameController
 
 struct HomeView: View {
@@ -38,19 +39,26 @@ struct HomeView: View {
                     VStack(spacing: 20) {
                         Spacer(minLength: 0)
                         
+                        
                         if viewModel.isMAVLinkConnected {
                             telemetryGrid
                         }
 
                         connectionStatusCard
                         
-                        if viewModel.isMAVLinkConnected && viewModel.isStickConnected {
-                            controllerInputCard
+                        if viewModel.isMAVLinkConnected {
+                            gyroChartsView
                         }
                         
                         if viewModel.isMAVLinkConnected {
                             mavlinkMessagesCard
                         }
+
+                        if viewModel.isMAVLinkConnected && viewModel.isStickConnected {
+                            controllerInputCard
+                        }
+                        
+
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
@@ -268,6 +276,84 @@ struct HomeView: View {
                         .frame(height: 200)
                     }
                 }
+            }
+        }
+    }
+    
+    private var gyroChartsView: some View {
+        ModernCardView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Euler Angles")
+                    .font(.cfFont(.bold, .title))
+                    .foregroundColor(Color.cfColor(.jetBlack))
+                
+                Chart {
+                    ForEach(viewModel.telemetryData.rollGyroData) { data in
+                        LineMark(
+                            x: .value("Time", data.timestamp),
+                            y: .value("Degrees", min(45, max(-45, data.value))),
+                            series: .value("Axis", "Roll")
+                        )
+                        .foregroundStyle(.red)
+                        .interpolationMethod(.catmullRom)
+                    }
+                    
+                    ForEach(viewModel.telemetryData.pitchGyroData) { data in
+                        LineMark(
+                            x: .value("Time", data.timestamp),
+                            y: .value("Degrees", min(45, max(-45, data.value))),
+                            series: .value("Axis", "Pitch")
+                        )
+                        .foregroundStyle(.green)
+                        .interpolationMethod(.catmullRom)
+                    }
+                    
+                    ForEach(viewModel.telemetryData.yawGyroData) { data in
+                        LineMark(
+                            x: .value("Time", data.timestamp),
+                            y: .value("Degrees", min(45, max(-45, data.value))),
+                            series: .value("Axis", "Yaw")
+                        )
+                        .foregroundStyle(.blue)
+                        .interpolationMethod(.catmullRom)
+                    }
+                    
+                    RuleMark(y: .value("Zero", 0))
+                        .foregroundStyle(Color.cfColor(.black200))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
+                }
+                .frame(height: 250)
+                .chartYScale(domain: -25...25)
+                .clipped()
+                .chartYAxis {
+                    AxisMarks(position: .leading) { _ in
+                        AxisGridLine()
+                            .foregroundStyle(Color.cfColor(.black100))
+                        AxisValueLabel()
+                            .foregroundStyle(Color.cfColor(.black300))
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: .automatic) { _ in
+                        AxisGridLine()
+                            .foregroundStyle(Color.cfColor(.black100))
+                    }
+                }
+                
+                HStack(spacing: 12) {
+                    Text("Roll")
+                        .foregroundColor(.red)
+                        .font(.cfFont(.semiBold, .bodySmall))
+                    
+                    Text("Pitch")
+                        .foregroundColor(.green)
+                        .font(.cfFont(.semiBold, .bodySmall))
+                    
+                    Text("Yaw")
+                        .foregroundColor(.blue)
+                        .font(.cfFont(.semiBold, .bodySmall))
+                }
+                .padding(.top, 8)
             }
         }
     }

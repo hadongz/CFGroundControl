@@ -15,6 +15,13 @@ import Network
 
 let MavScheduler = ConcurrentDispatchQueueScheduler(qos: .default)
 
+struct GyroReading: Identifiable {
+    let id: UUID = UUID()
+    let timestamp: Date
+    let value: Float
+    let axis: String
+}
+
 final class HomeViewModel: ObservableObject {
     
     @Published var isStickConnected: Bool = false
@@ -30,7 +37,7 @@ final class HomeViewModel: ObservableObject {
     @Published var port = "14550"
     
     @Published var telemetryData = TelemetryData()
-
+    
     var currentContrroller: GCController?
     private var drone: Drone?
     private let disposeBag = DisposeBag()
@@ -41,9 +48,9 @@ final class HomeViewModel: ObservableObject {
     
     struct TelemetryData {
         var isArmed = false
-        var rollDeg: Float = 0.0
-        var pitchDeg: Float = 0.0
-        var yawDeg: Float = 0.0
+        var rollGyroData: [GyroReading] = []
+        var pitchGyroData: [GyroReading] = []
+        var yawGyroData: [GyroReading] = []
         var statusText: [String] = []
     }
     
@@ -99,6 +106,7 @@ final class HomeViewModel: ObservableObject {
             .subscribe(
                 onCompleted: { [weak self] in
                     self?.resetStickValue()
+                    self?.resetGyroData() 
                 },
                 onError: { error in
                     print("Failed to disarm drone: \(error)")
@@ -125,6 +133,13 @@ final class HomeViewModel: ObservableObject {
         rightStickX = 0.0
         rightStickY = 0.0
     }
+    
+    private func resetGyroData() {
+        telemetryData.pitchGyroData = []
+        telemetryData.rollGyroData = []
+        telemetryData.yawGyroData = []
+    }
+    
     private func setupInputControllers(_ controller: GCController) {
         guard let gamepad = controller.extendedGamepad else { return }
         
@@ -172,6 +187,8 @@ final class HomeViewModel: ObservableObject {
                 self?.isMAVLinkConnected = connectionState.isConnected
                 self?.connectionStatus = connectionState.isConnected ? "Connected to drone" : "Connecting..."
                 if connectionState.isConnected {
+                    self?.resetStickValue()
+                    self?.resetGyroData()
                     self?.startTelemetrySubscriptions()
                 }
             })
@@ -206,9 +223,23 @@ final class HomeViewModel: ObservableObject {
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] attitudeEuler in
-                self?.telemetryData.rollDeg = attitudeEuler.rollDeg
-                self?.telemetryData.pitchDeg = attitudeEuler.pitchDeg
-                self?.telemetryData.yawDeg = attitudeEuler.yawDeg
+                guard let self else { return }
+                
+                let timestamp = Date()
+                
+                telemetryData.rollGyroData.append(GyroReading(timestamp: timestamp, value: attitudeEuler.rollDeg, axis: "Roll"))
+                telemetryData.pitchGyroData.append(GyroReading(timestamp: timestamp, value: attitudeEuler.pitchDeg, axis: "Pitch"))
+                telemetryData.yawGyroData.append(GyroReading(timestamp: timestamp, value: attitudeEuler.yawDeg, axis: "Yaw"))
+                
+                while telemetryData.rollGyroData.count > 20 {
+                    telemetryData.rollGyroData.removeFirst()
+                }
+                while telemetryData.pitchGyroData.count > 20 {
+                    telemetryData.pitchGyroData.removeFirst()
+                }
+                while telemetryData.yawGyroData.count > 20 {
+                    telemetryData.yawGyroData.removeFirst()
+                }
             })
             .disposed(by: disposeBag)
         
