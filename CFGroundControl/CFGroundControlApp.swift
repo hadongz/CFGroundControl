@@ -9,9 +9,15 @@ import SwiftUI
 
 @main
 struct CFGroundControlApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject var appUtility = AppUtility()
+    @StateObject var navigationManager = NavigationManager()
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
+                .environmentObject(navigationManager)
+                .environmentObject(appUtility)
         }
     }
 }

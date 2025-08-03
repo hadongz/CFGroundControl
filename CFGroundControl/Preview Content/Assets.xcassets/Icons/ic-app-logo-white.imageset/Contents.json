@@ -1,6 +1,7 @@
 {
-  "colors" : [
+  "images" : [
     {
+      "filename" : "ic-app-logo-white.png",
       "idiom" : "universal"
     }
   ],
