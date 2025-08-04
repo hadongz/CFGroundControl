@@ -14,12 +14,35 @@ import RxSwift
 import Network
 
 let MavScheduler = ConcurrentDispatchQueueScheduler(qos: .default)
+let MavParamScheduler = SerialDispatchQueueScheduler(qos: .utility)
 
-struct GyroReading: Identifiable {
+struct MotorData: Identifiable {
+    let id: UUID = UUID()
+    let timestamp: Date
+    let motor1, motor2, motor3, motor4: Int
+}
+
+struct EulerAngleData: Identifiable {
+    let id: UUID = UUID()
+    let timestamp: Date
+    let roll, pitch, yaw: Float
+}
+
+struct ThrottleData: Identifiable {
     let id: UUID = UUID()
     let timestamp: Date
     let value: Float
-    let axis: String
+}
+
+struct TelemetryData {
+    var isArmed = false
+    var attitudeData: [EulerAngleData] = []
+    var statusText: [String] = []
+    var floatParams: [Param.FloatParam] = []
+    var motorData: [MotorData] = []
+    var throttleData: [ThrottleData] = []
+    var pidData: [EulerAngleData] = []
+    var targetAttitudeData: [EulerAngleData] = []
 }
 
 final class HomeViewModel: ObservableObject {
@@ -37,6 +60,8 @@ final class HomeViewModel: ObservableObject {
     @Published var port = "14550"
     
     @Published var telemetryData = TelemetryData()
+    @Published var isLoadingParameters = false
+    @Published var parametersRefreshTrigger = UUID()
     
     var currentContrroller: GCController?
     private var drone: Drone?
@@ -45,14 +70,6 @@ final class HomeViewModel: ObservableObject {
     private var discoveredDroneIP: String?
     
     private let maxStatusTextCount: Int = 100
-    
-    struct TelemetryData {
-        var isArmed = false
-        var rollGyroData: [GyroReading] = []
-        var pitchGyroData: [GyroReading] = []
-        var yawGyroData: [GyroReading] = []
-        var statusText: [String] = []
-    }
     
     func connectToMAVLink() {
         connectionStatus = "Connecting to MAVSDK Server..."
@@ -100,19 +117,79 @@ final class HomeViewModel: ObservableObject {
     func disarmDrone() {
         guard let drone = drone, isMAVLinkConnected else { return }
         
+        resetStickValue()
+        sendManualControlCommand()
+        
         drone.action.kill()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(
                 onCompleted: { [weak self] in
                     self?.resetStickValue()
-                    self?.resetGyroData() 
+                    self?.resetTelemetryData() 
                 },
-                onError: { error in
+                onError: { [weak self] error in
                     print("Failed to disarm drone: \(error)")
+                    self?.resetStickValue()
+                    self?.resetTelemetryData()
                 }
             )
             .disposed(by: disposeBag)
+    }
+    
+    func getAllParameters() {
+        guard let drone else { return }
+        
+        isLoadingParameters = true
+        
+        drone.param.getAllParams()
+            .subscribe(on: MavParamScheduler)
+            .observe(on: MainScheduler.instance)
+            .subscribe(
+                onSuccess: { [weak self] params in
+                    print("Success get parameters: \(params.floatParams.count)")
+                    guard let self else { return }
+                    self.telemetryData.floatParams = params.floatParams
+                    self.isLoadingParameters = false
+                    self.parametersRefreshTrigger = UUID()
+                },
+                onFailure: { [weak self] error in
+                    print("Failed to get parameters: \(error)")
+                    self?.isLoadingParameters = false
+                }
+            )
+            .disposed(by: disposeBag)
+    }
+    
+    func refreshParameters() {
+        getAllParameters()
+    }
+    
+    func updateParameter(name: String, value: Float?) {
+        guard let drone = drone, let value = value else { return }
+        
+        drone.param.setParamFloat(name: name, value: value)
+            .subscribe(on: MavParamScheduler)
+            .observe(on: MainScheduler.instance)
+            .subscribe(
+                onCompleted: { [weak self] in
+                    print("Parameter \(name) updated to \(value)")
+                    if let index = self?.telemetryData.floatParams.firstIndex(where: { $0.name == name }) {
+                        self?.telemetryData.floatParams[index] = Param.FloatParam(name: name, value: value)
+                    }
+                },
+                onError: { error in
+                    print("Failed to update parameter \(name): \(error)")
+                }
+            )
+            .disposed(by: disposeBag)
+    }
+    
+    func disconnectMAVLink() {
+        isMAVLinkConnected = false
+        connectionStatus = "Disconnected"
+        drone?.disconnect()
+        drone = nil
     }
     
     func stickDidConnect(_ controller: GCController) {
@@ -134,10 +211,11 @@ final class HomeViewModel: ObservableObject {
         rightStickY = 0.0
     }
     
-    private func resetGyroData() {
-        telemetryData.pitchGyroData = []
-        telemetryData.rollGyroData = []
-        telemetryData.yawGyroData = []
+    private func resetTelemetryData() {
+        telemetryData.attitudeData.removeAll()
+        telemetryData.motorData.removeAll()
+        telemetryData.targetAttitudeData.removeAll()
+        telemetryData.pidData.removeAll()
     }
     
     private func setupInputControllers(_ controller: GCController) {
@@ -184,12 +262,19 @@ final class HomeViewModel: ObservableObject {
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] connectionState in
-                self?.isMAVLinkConnected = connectionState.isConnected
-                self?.connectionStatus = connectionState.isConnected ? "Connected to drone" : "Connecting..."
+                guard let self else { return }
+                let lastConnectionState = isMAVLinkConnected
+                isMAVLinkConnected = connectionState.isConnected
+                connectionStatus = connectionState.isConnected ? "Connected to drone" : "Connecting..."
+                
+                if lastConnectionState != isMAVLinkConnected {
+                    resetTelemetryData()
+                    resetStickValue()
+                }
+                
                 if connectionState.isConnected {
-                    self?.resetStickValue()
-                    self?.resetGyroData()
-                    self?.startTelemetrySubscriptions()
+                    startTelemetrySubscriptions()
+                    getAllParameters()
                 }
             })
             .disposed(by: disposeBag)
@@ -220,25 +305,23 @@ final class HomeViewModel: ObservableObject {
             .disposed(by: disposeBag)
         
         drone.telemetry.attitudeEuler
+            .throttle(.milliseconds(100), scheduler: MainScheduler.instance)
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] attitudeEuler in
                 guard let self else { return }
                 
                 let timestamp = Date()
+                telemetryData.attitudeData.append(
+                    EulerAngleData(
+                        timestamp: timestamp,
+                        roll: attitudeEuler.rollDeg,
+                        pitch: attitudeEuler.pitchDeg,
+                        yaw: attitudeEuler.yawDeg)
+                )
                 
-                telemetryData.rollGyroData.append(GyroReading(timestamp: timestamp, value: attitudeEuler.rollDeg, axis: "Roll"))
-                telemetryData.pitchGyroData.append(GyroReading(timestamp: timestamp, value: attitudeEuler.pitchDeg, axis: "Pitch"))
-                telemetryData.yawGyroData.append(GyroReading(timestamp: timestamp, value: attitudeEuler.yawDeg, axis: "Yaw"))
-                
-                while telemetryData.rollGyroData.count > 20 {
-                    telemetryData.rollGyroData.removeFirst()
-                }
-                while telemetryData.pitchGyroData.count > 20 {
-                    telemetryData.pitchGyroData.removeFirst()
-                }
-                while telemetryData.yawGyroData.count > 20 {
-                    telemetryData.yawGyroData.removeFirst()
+                while telemetryData.attitudeData.count > 25 {
+                    telemetryData.attitudeData.removeFirst()
                 }
             })
             .disposed(by: disposeBag)
@@ -246,22 +329,101 @@ final class HomeViewModel: ObservableObject {
         drone.telemetry.statusText
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { [weak self] statusText in
+            .subscribe(onNext: { [weak self] status in
                 guard let self else { return }
-                telemetryData.statusText.append(statusText.text)
-                while telemetryData.statusText.count > self.maxStatusTextCount {
-                    telemetryData.statusText.removeFirst()
+                let statusText = status.text
+                let timestamp = Date()
+                
+                if statusText.hasPrefix("MOTOR:") {
+                    let motorValues = statusText
+                        .replacingOccurrences(of: "MOTOR:", with: "")
+                        .split(separator: ",")
+                        .compactMap { Int($0) }
+                    
+                    guard motorValues.count >= 4 else { return }
+                    
+                    let data = MotorData(
+                        timestamp: timestamp,
+                        motor1: motorValues[0],
+                        motor2: motorValues[1],
+                        motor3: motorValues[2],
+                        motor4: motorValues[3]
+                    )
+                    
+                    telemetryData.motorData.append(data)
+                    
+                    while telemetryData.motorData.count > 25 {
+                        telemetryData.motorData.removeFirst()
+                    }
+                    
+                } else if statusText.hasPrefix("PID:") {
+                    let pidValues = statusText
+                        .replacingOccurrences(of: "PID:", with: "")
+                        .split(separator: ",")
+                        .compactMap { Float($0) }
+                    
+                    guard pidValues.count >= 3 else { return }
+                    
+                    let data = EulerAngleData(
+                        timestamp: timestamp,
+                        roll: pidValues[0],
+                        pitch: pidValues[1],
+                        yaw: pidValues[2]
+                    )
+                    
+                    telemetryData.pidData.append(data)
+                    
+                    while telemetryData.pidData.count > 25 {
+                        telemetryData.pidData.removeFirst()
+                    }
+                    
+                } else if statusText.hasPrefix("THROTTLE:") {
+                    let throttleString = statusText.replacingOccurrences(of: "THROTTLE:", with: "")
+                    
+                    guard let throttleValue = Float(throttleString) else { return }
+                    
+                    let data = ThrottleData(
+                        timestamp: timestamp,
+                        value: throttleValue
+                    )
+                    
+                    telemetryData.throttleData.append(data)
+                    
+                    while telemetryData.throttleData.count > 25 {
+                        telemetryData.throttleData.removeFirst()
+                    }
+                    
+                } else if statusText.hasPrefix("TARGET:") {
+                    let targetValues = statusText
+                        .replacingOccurrences(of: "TARGET:", with: "")
+                        .split(separator: ",")
+                        .compactMap { Float($0) }
+                    
+                    guard targetValues.count >= 3 else { return }
+                    
+                    let data = EulerAngleData(
+                        timestamp: timestamp,
+                        roll: targetValues[0],
+                        pitch: targetValues[1],
+                        yaw: targetValues[2]
+                    )
+                    
+                    telemetryData.targetAttitudeData.append(data)
+                    
+                    while telemetryData.targetAttitudeData.count > 10 {
+                        telemetryData.targetAttitudeData.removeFirst()
+                    }
+                    
+                } else {
+                    telemetryData.statusText.append(statusText)
+                    while telemetryData.statusText.count > maxStatusTextCount {
+                        telemetryData.statusText.removeFirst()
+                    }
                 }
             })
             .disposed(by: disposeBag)
     }
     
-    func disconnectMAVLink() {
-        isMAVLinkConnected = false
-        connectionStatus = "Disconnected"
-        drone?.disconnect()
-        drone = nil
-    }
     
     deinit {
         disconnectMAVLink()

@@ -36,18 +36,19 @@ struct HomeView: View {
                 headerView
                 
                 ScrollView {
-                    VStack(spacing: 20) {
+                    LazyVStack(spacing: 20) {
                         Spacer(minLength: 0)
                         
+                        telemetryGrid
                         
-                        if viewModel.isMAVLinkConnected {
-                            telemetryGrid
-                        }
-
                         connectionStatusCard
                         
                         if viewModel.isMAVLinkConnected {
-                            gyroChartsView
+                            analysisChartsView
+                        }
+                        
+                        if viewModel.isMAVLinkConnected {
+                            parametersListView
                         }
                         
                         if viewModel.isMAVLinkConnected {
@@ -58,7 +59,6 @@ struct HomeView: View {
                             controllerInputCard
                         }
                         
-
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
@@ -280,81 +280,75 @@ struct HomeView: View {
         }
     }
     
-    private var gyroChartsView: some View {
+    private var analysisChartsView: some View {
         ModernCardView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Euler Angles")
+                Text("Analysis Charts")
                     .font(.cfFont(.bold, .title))
                     .foregroundColor(Color.cfColor(.jetBlack))
                 
-                Chart {
-                    ForEach(viewModel.telemetryData.rollGyroData) { data in
-                        LineMark(
-                            x: .value("Time", data.timestamp),
-                            y: .value("Degrees", min(45, max(-45, data.value))),
-                            series: .value("Axis", "Roll")
-                        )
-                        .foregroundStyle(.red)
-                        .interpolationMethod(.catmullRom)
-                    }
+                AttitudeChartView(telemetryData: $viewModel.telemetryData)
+                MotorChartView(telemetryData: $viewModel.telemetryData)
+                PIDChartView(telemetryData: $viewModel.telemetryData)
+                ThrottleChartView(telemetryData: $viewModel.telemetryData)
+            }
+        }
+    }
+    
+    private var parametersListView: some View {
+        ModernCardView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Parameters List")
+                        .font(.cfFont(.bold, .title))
+                        .foregroundColor(Color.cfColor(.jetBlack))
                     
-                    ForEach(viewModel.telemetryData.pitchGyroData) { data in
-                        LineMark(
-                            x: .value("Time", data.timestamp),
-                            y: .value("Degrees", min(45, max(-45, data.value))),
-                            series: .value("Axis", "Pitch")
-                        )
-                        .foregroundStyle(.green)
-                        .interpolationMethod(.catmullRom)
-                    }
+                    Spacer()
                     
-                    ForEach(viewModel.telemetryData.yawGyroData) { data in
-                        LineMark(
-                            x: .value("Time", data.timestamp),
-                            y: .value("Degrees", min(45, max(-45, data.value))),
-                            series: .value("Axis", "Yaw")
+                    Button(action: {
+                        viewModel.refreshParameters()
+                    }) {
+                        HStack(spacing: 6) {
+                            if viewModel.isLoadingParameters {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .frame(width: 14, height: 14)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                                    .resizable()
+                                    .frame(width: 14, height: 14)
+                            }
+                            
+                            Text("Refresh")
+                                .font(.cfFont(.semiBold, .bodySmall))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(viewModel.isLoadingParameters ? Color.cfColor(.black300) : Color.cfColor(.darkYellow))
                         )
-                        .foregroundStyle(.blue)
-                        .interpolationMethod(.catmullRom)
                     }
-                    
-                    RuleMark(y: .value("Zero", 0))
-                        .foregroundStyle(Color.cfColor(.black200))
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
+                    .disabled(viewModel.isLoadingParameters)
                 }
-                .frame(height: 250)
-                .chartYScale(domain: -25...25)
-                .clipped()
-                .chartYAxis {
-                    AxisMarks(position: .leading) { _ in
-                        AxisGridLine()
-                            .foregroundStyle(Color.cfColor(.black100))
-                        AxisValueLabel()
-                            .foregroundStyle(Color.cfColor(.black300))
-                    }
-                }
-                .chartXAxis {
-                    AxisMarks(values: .automatic) { _ in
-                        AxisGridLine()
-                            .foregroundStyle(Color.cfColor(.black100))
-                    }
-                }
+
                 
-                HStack(spacing: 12) {
-                    Text("Roll")
-                        .foregroundColor(.red)
-                        .font(.cfFont(.semiBold, .bodySmall))
-                    
-                    Text("Pitch")
-                        .foregroundColor(.green)
-                        .font(.cfFont(.semiBold, .bodySmall))
-                    
-                    Text("Yaw")
-                        .foregroundColor(.blue)
-                        .font(.cfFont(.semiBold, .bodySmall))
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 80)), count: 3), spacing: 16) {
+                    ForEach(viewModel.telemetryData.floatParams, id: \.name) { param in
+                        ParamaterRowView(
+                            name: param.name,
+                            value: param.value,
+                            refreshTrigger: viewModel.parametersRefreshTrigger,
+                            onValueChanged: { paramName, newValue in
+                                viewModel.updateParameter(name: paramName, value: newValue)
+                            }
+                        )
+                    }
                 }
-                .padding(.top, 8)
+                .id(viewModel.parametersRefreshTrigger)
             }
         }
     }
 }
+
