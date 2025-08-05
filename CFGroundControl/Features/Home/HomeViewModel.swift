@@ -34,6 +34,15 @@ struct ThrottleData: Identifiable {
     let value: Float
 }
 
+struct SessionData {
+    var attitudeData: [EulerAngleData] = []
+    var floatParams: [Param.FloatParam] = []
+    var motorData: [MotorData] = []
+    var throttleData: [ThrottleData] = []
+    var pidData: [EulerAngleData] = []
+    var targetAttitudeData: [EulerAngleData] = []
+}
+
 struct TelemetryData {
     var isArmed = false
     var attitudeData: [EulerAngleData] = []
@@ -63,13 +72,22 @@ final class HomeViewModel: ObservableObject {
     @Published var isLoadingParameters = false
     @Published var parametersRefreshTrigger = UUID()
     
+    @Published var isRecordingSession: Bool = false
+    
     var currentContrroller: GCController?
     private var drone: Drone?
     private let disposeBag = DisposeBag()
     private var udpListener: NWListener?
     private var discoveredDroneIP: String?
     
+    private let sessionRecorder = StreamingSessionRecorder()
+    
     private let maxStatusTextCount: Int = 100
+    
+    deinit {
+        disconnectMAVLink()
+        udpListener?.cancel()
+    }
     
     func connectToMAVLink() {
         connectionStatus = "Connecting to MAVSDK Server..."
@@ -95,6 +113,14 @@ final class HomeViewModel: ObservableObject {
                 drone.disconnect()
             })
             .disposed(by: disposeBag)
+    }
+    
+    func recordOrStopSession() {
+        isRecordingSession ? saveSession() : recordSession()
+    }
+    
+    func armOrDisarmDrone() {
+        telemetryData.isArmed ? disarmDrone() : armDrone()
     }
     
     func armDrone() {
@@ -173,9 +199,10 @@ final class HomeViewModel: ObservableObject {
             .observe(on: MainScheduler.instance)
             .subscribe(
                 onCompleted: { [weak self] in
+                    guard let self else { return }
                     print("Parameter \(name) updated to \(value)")
-                    if let index = self?.telemetryData.floatParams.firstIndex(where: { $0.name == name }) {
-                        self?.telemetryData.floatParams[index] = Param.FloatParam(name: name, value: value)
+                    if let index = telemetryData.floatParams.firstIndex(where: { $0.name == name }) {
+                        telemetryData.floatParams[index] = Param.FloatParam(name: name, value: value)
                     }
                 },
                 onError: { error in
@@ -254,6 +281,13 @@ final class HomeViewModel: ObservableObject {
                 self?.armDrone()
             }
         }
+        
+        gamepad.buttonX.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard isPressed else { return }
+            DispatchQueue.main.async {
+                self?.recordOrStopSession()
+            }
+        }
     }
     
     private func subscribeMAVLinkConnection() {
@@ -312,13 +346,22 @@ final class HomeViewModel: ObservableObject {
                 guard let self else { return }
                 
                 let timestamp = Date()
-                telemetryData.attitudeData.append(
-                    EulerAngleData(
-                        timestamp: timestamp,
+                let data = EulerAngleData(
+                    timestamp: timestamp,
+                    roll: attitudeEuler.rollDeg,
+                    pitch: attitudeEuler.pitchDeg,
+                    yaw: attitudeEuler.yawDeg
+                )
+                
+                telemetryData.attitudeData.append(data)
+                
+                if isRecordingSession {
+                    sessionRecorder.writeAttitude(
                         roll: attitudeEuler.rollDeg,
                         pitch: attitudeEuler.pitchDeg,
-                        yaw: attitudeEuler.yawDeg)
-                )
+                        yaw: attitudeEuler.yawDeg
+                    )
+                }
                 
                 while telemetryData.attitudeData.count > 25 {
                     telemetryData.attitudeData.removeFirst()
@@ -352,6 +395,15 @@ final class HomeViewModel: ObservableObject {
                     
                     telemetryData.motorData.append(data)
                     
+                    if isRecordingSession {
+                        sessionRecorder.writeMotors(
+                            m1: data.motor1,
+                            m2: data.motor2,
+                            m3: data.motor3,
+                            m4: data.motor4
+                        )
+                    }
+                    
                     while telemetryData.motorData.count > 25 {
                         telemetryData.motorData.removeFirst()
                     }
@@ -373,6 +425,10 @@ final class HomeViewModel: ObservableObject {
                     
                     telemetryData.pidData.append(data)
                     
+                    if isRecordingSession {
+                        sessionRecorder.writePID(roll: pidValues[0], pitch: pidValues[1], yaw: pidValues[2])
+                    }
+                    
                     while telemetryData.pidData.count > 25 {
                         telemetryData.pidData.removeFirst()
                     }
@@ -388,6 +444,10 @@ final class HomeViewModel: ObservableObject {
                     )
                     
                     telemetryData.throttleData.append(data)
+                    
+                    if isRecordingSession {
+                        sessionRecorder.writeThrottle(value: throttleValue)
+                    }
                     
                     while telemetryData.throttleData.count > 25 {
                         telemetryData.throttleData.removeFirst()
@@ -410,6 +470,10 @@ final class HomeViewModel: ObservableObject {
                     
                     telemetryData.targetAttitudeData.append(data)
                     
+                    if isRecordingSession {
+                        sessionRecorder.writeTargetAttitude(roll: targetValues[0], pitch: targetValues[1], yaw: targetValues[2])
+                    }
+                    
                     while telemetryData.targetAttitudeData.count > 10 {
                         telemetryData.targetAttitudeData.removeFirst()
                     }
@@ -424,9 +488,17 @@ final class HomeViewModel: ObservableObject {
             .disposed(by: disposeBag)
     }
     
-    
-    deinit {
-        disconnectMAVLink()
-        udpListener?.cancel()
+    private func recordSession() {
+        guard telemetryData.isArmed, isMAVLinkConnected else { return }
+        isRecordingSession = true
+        try? sessionRecorder.startRecording()
     }
+    
+    private func saveSession() {
+        guard isRecordingSession else { return }
+        isRecordingSession = false
+        sessionRecorder.stopRecording(parameters: telemetryData.floatParams)
+    }
+    
+
 }

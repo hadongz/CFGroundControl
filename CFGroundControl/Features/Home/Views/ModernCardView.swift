@@ -19,6 +19,6 @@ struct ModernCardView<Content: View>: View {
             .padding(20)
             .background(Color.cfColor(.white))
             .cornerRadius(16)
-            .shadow(color: Color.cfColor(.black100).opacity(0.3), radius: 8, x: 0, y: 2)
+            .subtleShadow()
     }
 }

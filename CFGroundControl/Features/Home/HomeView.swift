@@ -10,6 +10,10 @@ import Charts
 import GameController
 
 struct HomeView: View {
+    
+    @EnvironmentObject var navigationManager: NavigationManager
+    @EnvironmentObject var appUtility: AppUtility
+    
     @StateObject private var viewModel: HomeViewModel
     
     @State var connectionAnimationId: UUID = UUID()
@@ -71,6 +75,13 @@ struct HomeView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .GCControllerDidDisconnect)) { _ in
             viewModel.stickDidDisconnect()
+        }
+        .navigationDestination(for: HomeViewRoute.self) { route in
+            switch route {
+            case .sessionList:
+                SessionListView()
+                    .navigationBarHidden(true)
+            }
         }
     }
     
@@ -158,7 +169,7 @@ struct HomeView: View {
                         color: .cfColor(.darkYellow),
                         isEnabled: !viewModel.isMAVLinkConnected
                     ) {
-                        viewModel.connectToMAVLink()
+                        appUtility.addImpactFeedback()
                         viewModel.connectToMAVLink()
                     }
                     
@@ -168,6 +179,7 @@ struct HomeView: View {
                         color: .red,
                         isEnabled: viewModel.isMAVLinkConnected
                     ) {
+                        appUtility.addImpactFeedback()
                         viewModel.disconnectMAVLink()
                     }
                 }
@@ -187,6 +199,10 @@ struct HomeView: View {
                 icon: "airplane",
                 color: viewModel.telemetryData.isArmed ? .green : .red
             )
+            .onTapGesture {
+                appUtility.addImpactFeedback()
+                viewModel.armOrDisarmDrone()
+            }
             
             TelemetryCardView(
                 title: "Controller",
@@ -194,6 +210,35 @@ struct HomeView: View {
                 icon: "gamecontroller.fill",
                 color: viewModel.isStickConnected ? .green : .red
             )
+            .onTapGesture {
+                if let url = URL(string: "App-Prefs:root=Bluetooth") {
+                    appUtility.addImpactFeedback()
+                    UIApplication.shared.open(url)
+                }
+            }
+            
+            
+            TelemetryCardView(
+                title: "Record Session",
+                value: viewModel.isRecordingSession ? "ON" : "OFF",
+                icon: "record.circle",
+                color: viewModel.isRecordingSession ? .green : .red
+            )
+            .onTapGesture {
+                appUtility.addImpactFeedback()
+                viewModel.recordOrStopSession()
+            }
+            
+            TelemetryCardView(
+                title: "Session List",
+                value: "Session",
+                icon: "list.bullet",
+                color: .green
+            )
+            .onTapGesture {
+                appUtility.addImpactFeedback()
+                navigationManager.push(HomeViewRoute.sessionList)
+            }
         }
     }
     

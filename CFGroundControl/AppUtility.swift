@@ -34,4 +34,25 @@ final class AppUtility: ObservableObject {
     func addImpactFeedback() {
         feedbackGenerator.impactOccurred()
     }
+    
+    func share(items: [Any], from viewController: UIViewController? = nil, cleanup: (() -> Void)? = nil) {
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        
+        if let cleanup = cleanup {
+            activityVC.completionWithItemsHandler = { _, _, _, _ in
+                cleanup()
+            }
+        }
+        
+        let presenter = viewController ?? UIApplication.shared.rootViewController
+        
+        guard let presenter = presenter else { return }
+        
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+        }
+        
+        presenter.present(activityVC, animated: true)
+    }
 }
