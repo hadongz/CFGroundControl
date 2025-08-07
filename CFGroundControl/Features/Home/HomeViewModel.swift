@@ -76,9 +76,11 @@ final class HomeViewModel: ObservableObject {
     
     var currentContrroller: GCController?
     private var drone: Drone?
-    private let disposeBag = DisposeBag()
     private var udpListener: NWListener?
     private var discoveredDroneIP: String?
+    
+    private let disposeBag = DisposeBag()
+    private var controlTimer: Disposable?
     
     private let sessionRecorder = StreamingSessionRecorder()
     
@@ -126,6 +128,8 @@ final class HomeViewModel: ObservableObject {
     func armDrone() {
         guard let drone = drone, isMAVLinkConnected else { return }
         
+        setupManualControlMAVLink()
+        
         drone.action.arm()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
@@ -144,7 +148,6 @@ final class HomeViewModel: ObservableObject {
         guard let drone = drone, isMAVLinkConnected else { return }
         
         resetStickValue()
-        sendManualControlCommand()
         
         drone.action.kill()
             .subscribe(on: MavScheduler)
@@ -152,12 +155,14 @@ final class HomeViewModel: ObservableObject {
             .subscribe(
                 onCompleted: { [weak self] in
                     self?.resetStickValue()
-                    self?.resetTelemetryData() 
+                    self?.resetTelemetryData()
+                    self?.disposeManualControlMAVLink()
                 },
                 onError: { [weak self] error in
                     print("Failed to disarm drone: \(error)")
                     self?.resetStickValue()
                     self?.resetTelemetryData()
+                    self?.disposeManualControlMAVLink()
                 }
             )
             .disposed(by: disposeBag)
@@ -252,20 +257,14 @@ final class HomeViewModel: ObservableObject {
         
         gamepad.leftThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
             guard let self else { return }
-            DispatchQueue.main.async {
-                self.leftStickX = abs(xValue) > deadband ? xValue - deadband : 0.0
-                self.leftStickY = abs(yValue) > deadband ? yValue - deadband : 0.0
-                self.sendManualControlCommand()
-            }
+            self.leftStickX = applyDeadband(xValue, deadband: deadband)
+            self.leftStickY = applyDeadband(yValue, deadband: deadband)
         }
         
         gamepad.rightThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
             guard let self else { return }
-            DispatchQueue.main.async {
-                self.rightStickX = abs(xValue) > deadband ? xValue - deadband : 0.0
-                self.rightStickY = abs(yValue) > deadband ? yValue - deadband : 0.0
-                self.sendManualControlCommand()
-            }
+            self.rightStickX = applyDeadband(xValue, deadband: deadband)
+            self.rightStickY = applyDeadband(yValue, deadband: deadband)
         }
         
         gamepad.buttonA.pressedChangedHandler = { [weak self] (input, value, isPressed) in
@@ -290,6 +289,13 @@ final class HomeViewModel: ObservableObject {
         }
     }
     
+    private func applyDeadband(_ value: Float, deadband: Float) -> Float {
+        if abs(value) < deadband { return 0.0 }
+        let sign = value > 0 ? Float(1.0) : Float(-1.0)
+        let scaledValue = (abs(value) - deadband) / (1.0 - deadband)
+        return sign * scaledValue
+    }
+    
     private func subscribeMAVLinkConnection() {
         guard let drone else { return }
         drone.core.connectionState
@@ -308,23 +314,36 @@ final class HomeViewModel: ObservableObject {
                 
                 if connectionState.isConnected {
                     startTelemetrySubscriptions()
-                    getAllParameters()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        self.getAllParameters()
+                    }
                 }
             })
             .disposed(by: disposeBag)
     }
     
-    private func sendManualControlCommand() {
+    private func setupManualControlMAVLink() {
         guard let drone else { return }
-        drone.manualControl
-            .setManualControlInput(
-                x: leftStickY,
-                y: leftStickX,
-                z: rightStickY,
-                r: rightStickX
-            )
-            .subscribe()
-            .disposed(by: disposeBag)
+        
+        controlTimer = Observable<Int>
+            .interval(.milliseconds(50), scheduler: MavParamScheduler)
+            .subscribe(onNext: { [weak self] _ in
+                guard let self else { return }
+                _ = drone.manualControl
+                    .setManualControlInput(
+                        x: leftStickY,
+                        y: leftStickX,
+                        z: rightStickY,
+                        r: rightStickX
+                    )
+                    .subscribe()
+                    .dispose()
+            })
+    }
+    
+    private func disposeManualControlMAVLink() {
+        controlTimer?.dispose()
+        controlTimer = nil
     }
     
     private func startTelemetrySubscriptions() {
@@ -404,7 +423,7 @@ final class HomeViewModel: ObservableObject {
                         )
                     }
                     
-                    while telemetryData.motorData.count > 25 {
+                    while telemetryData.motorData.count > 50 {
                         telemetryData.motorData.removeFirst()
                     }
                     
@@ -429,7 +448,7 @@ final class HomeViewModel: ObservableObject {
                         sessionRecorder.writePID(roll: pidValues[0], pitch: pidValues[1], yaw: pidValues[2])
                     }
                     
-                    while telemetryData.pidData.count > 25 {
+                    while telemetryData.pidData.count > 50 {
                         telemetryData.pidData.removeFirst()
                     }
                     
@@ -499,6 +518,4 @@ final class HomeViewModel: ObservableObject {
         isRecordingSession = false
         sessionRecorder.stopRecording(parameters: telemetryData.floatParams)
     }
-    
-
 }
