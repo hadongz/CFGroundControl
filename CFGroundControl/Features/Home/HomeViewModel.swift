@@ -86,6 +86,9 @@ final class HomeViewModel: ObservableObject {
     
     private let maxStatusTextCount: Int = 100
     
+    private var autoThrottleActive: Bool = false
+    private let maxAutoThrottle: Float = 0.35
+    
     deinit {
         disconnectMAVLink()
         udpListener?.cancel()
@@ -169,7 +172,7 @@ final class HomeViewModel: ObservableObject {
     }
     
     func getAllParameters() {
-        guard let drone else { return }
+        guard let drone, !isLoadingParameters else { return }
         
         isLoadingParameters = true
         
@@ -264,7 +267,13 @@ final class HomeViewModel: ObservableObject {
         gamepad.rightThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
             guard let self else { return }
             self.rightStickX = applyDeadband(xValue, deadband: deadband)
-            self.rightStickY = applyDeadband(yValue, deadband: deadband)
+            if autoThrottleActive && abs(yValue) > 0.0 {
+                autoThrottleActive.toggle()
+                self.rightStickY = applyDeadband(yValue, deadband: deadband)
+            } else {
+                self.rightStickY = applyDeadband(yValue, deadband: deadband)
+            }
+            
         }
         
         gamepad.buttonA.pressedChangedHandler = { [weak self] (input, value, isPressed) in
@@ -286,6 +295,11 @@ final class HomeViewModel: ObservableObject {
             DispatchQueue.main.async {
                 self?.recordOrStopSession()
             }
+        }
+        
+        gamepad.buttonY.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard let self, isPressed, telemetryData.isArmed else { return }
+            autoThrottleActive.toggle()
         }
     }
     
@@ -314,7 +328,7 @@ final class HomeViewModel: ObservableObject {
                 
                 if connectionState.isConnected {
                     startTelemetrySubscriptions()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                         self.getAllParameters()
                     }
                 }
@@ -325,6 +339,17 @@ final class HomeViewModel: ObservableObject {
     private func setupManualControlMAVLink() {
         guard let drone else { return }
         
+        Observable<Int>
+            .interval(.milliseconds(250), scheduler: MavScheduler)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] _ in
+                guard let self else { return }
+                if autoThrottleActive && rightStickY <= maxAutoThrottle {
+                    rightStickY += 0.01
+                }
+            })
+            .disposed(by: disposeBag)
+        
         controlTimer = Observable<Int>
             .interval(.milliseconds(50), scheduler: MavParamScheduler)
             .subscribe(onNext: { [weak self] _ in
@@ -333,8 +358,8 @@ final class HomeViewModel: ObservableObject {
                     .setManualControlInput(
                         x: leftStickY,
                         y: leftStickX,
-                        z: rightStickY,
-                        r: rightStickX
+                        z: rightStickX,
+                        r: rightStickY
                     )
                     .subscribe()
                     .dispose()
