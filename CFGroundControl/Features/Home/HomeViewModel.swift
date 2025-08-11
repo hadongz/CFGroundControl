@@ -34,13 +34,13 @@ struct ThrottleData: Identifiable {
     let value: Float
 }
 
-struct SessionData {
-    var attitudeData: [EulerAngleData] = []
-    var floatParams: [Param.FloatParam] = []
-    var motorData: [MotorData] = []
-    var throttleData: [ThrottleData] = []
-    var pidData: [EulerAngleData] = []
-    var targetAttitudeData: [EulerAngleData] = []
+struct ControlLoopTimeData: Identifiable {
+    let id: UUID = UUID()
+    let timestamp: Date
+    let avgFreqHz: Int
+    let currentFreqHz: Int
+    let minFreqHz: Int
+    let maxFreqHz: Int
 }
 
 struct TelemetryData {
@@ -52,6 +52,7 @@ struct TelemetryData {
     var throttleData: [ThrottleData] = []
     var pidData: [EulerAngleData] = []
     var targetAttitudeData: [EulerAngleData] = []
+    var controlLoopTimeData: [ControlLoopTimeData] = []
 }
 
 final class HomeViewModel: ObservableObject {
@@ -87,7 +88,7 @@ final class HomeViewModel: ObservableObject {
     private let maxStatusTextCount: Int = 100
     
     private var autoThrottleActive: Bool = false
-    private let maxAutoThrottle: Float = 0.35
+    private let maxAutoThrottle: Float = 0.40
     
     deinit {
         disconnectMAVLink()
@@ -159,12 +160,14 @@ final class HomeViewModel: ObservableObject {
                 onCompleted: { [weak self] in
                     self?.resetStickValue()
                     self?.resetTelemetryData()
+                    self?.saveSession()
                     self?.disposeManualControlMAVLink()
                 },
                 onError: { [weak self] error in
                     print("Failed to disarm drone: \(error)")
                     self?.resetStickValue()
                     self?.resetTelemetryData()
+                    self?.saveSession()
                     self?.disposeManualControlMAVLink()
                 }
             )
@@ -251,6 +254,7 @@ final class HomeViewModel: ObservableObject {
         telemetryData.motorData.removeAll()
         telemetryData.targetAttitudeData.removeAll()
         telemetryData.pidData.removeAll()
+        telemetryData.controlLoopTimeData.removeAll()
     }
     
     private func setupInputControllers(_ controller: GCController) {
@@ -328,9 +332,6 @@ final class HomeViewModel: ObservableObject {
                 
                 if connectionState.isConnected {
                     startTelemetrySubscriptions()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                        self.getAllParameters()
-                    }
                 }
             })
             .disposed(by: disposeBag)
@@ -343,7 +344,7 @@ final class HomeViewModel: ObservableObject {
             .interval(.milliseconds(250), scheduler: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] _ in
-                guard let self else { return }
+                guard let self, telemetryData.isArmed else { return }
                 if autoThrottleActive && rightStickY <= maxAutoThrottle {
                     rightStickY += 0.01
                 }
@@ -351,9 +352,9 @@ final class HomeViewModel: ObservableObject {
             .disposed(by: disposeBag)
         
         controlTimer = Observable<Int>
-            .interval(.milliseconds(50), scheduler: MavParamScheduler)
+            .interval(.milliseconds(100), scheduler: MavParamScheduler)
             .subscribe(onNext: { [weak self] _ in
-                guard let self else { return }
+                guard let self, telemetryData.isArmed else { return }
                 _ = drone.manualControl
                     .setManualControlInput(
                         x: leftStickY,
@@ -522,6 +523,38 @@ final class HomeViewModel: ObservableObject {
                         telemetryData.targetAttitudeData.removeFirst()
                     }
                     
+                } else if statusText.hasPrefix("LOOPTIME:") {
+                    let targetValues = statusText
+                        .replacingOccurrences(of: "LOOPTIME:", with: "")
+                        .replacingOccurrences(of: " ", with: "")
+                        .split(separator: ",")
+                        .compactMap { Int($0) }
+                    
+                    guard targetValues.count >= 4 else { return }
+                    
+                    let data = ControlLoopTimeData(
+                        timestamp: timestamp,
+                        avgFreqHz: targetValues[0],
+                        currentFreqHz: targetValues[1],
+                        minFreqHz: targetValues[2],
+                        maxFreqHz: targetValues[3]
+                    )
+                    
+                    telemetryData.controlLoopTimeData.append(data)
+                    
+                    if isRecordingSession {
+                        sessionRecorder.writeControlLoopTime(
+                            avgFreq: targetValues[0],
+                            currentFreq: targetValues[1],
+                            minFreq: targetValues[2],
+                            maxFreq: targetValues[3]
+                        )
+                    }
+                    
+                    while telemetryData.controlLoopTimeData.count > 25 {
+                        telemetryData.controlLoopTimeData.removeFirst()
+                    }
+                    
                 } else {
                     telemetryData.statusText.append(statusText)
                     while telemetryData.statusText.count > maxStatusTextCount {
@@ -534,6 +567,7 @@ final class HomeViewModel: ObservableObject {
     
     private func recordSession() {
         guard telemetryData.isArmed, isMAVLinkConnected else { return }
+        refreshParameters()
         isRecordingSession = true
         try? sessionRecorder.startRecording()
     }

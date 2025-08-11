@@ -26,7 +26,7 @@ struct MotorChartView: View {
     }
     
     var body: some View {
-        AccordionView(title: "Motor Values") {
+        AccordionView(title: "Motor PWM Values") {
             VStack(spacing: 8) {
                 HStack(spacing: 12) {
                     MotorIndicator(

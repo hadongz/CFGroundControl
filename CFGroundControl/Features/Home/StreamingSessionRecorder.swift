@@ -40,6 +40,7 @@ final class StreamingSessionRecorder {
         createCSVFile(name: "throttle", headers: "timestamp,throttle")
         createCSVFile(name: "pid_output", headers: "timestamp,roll_pid,pitch_pid,yaw_pid")
         createCSVFile(name: "target_attitude", headers: "timestamp,target_roll,target_pitch,target_yaw")
+        createCSVFile(name: "control_loop_time", headers: "timestamp,avg_freq,current_freq,min_freq,max_freq")
     }
     
     private func createCSVFile(name: String, headers: String) {
@@ -104,6 +105,16 @@ final class StreamingSessionRecorder {
         
         let timestamp = dateFormatter.string(from: Date())
         let line = "\(timestamp),\(roll),\(pitch),\(yaw)\n"
+        
+        if let data = line.data(using: .utf8) {
+            handle.write(data)
+        }
+    }
+    
+    func writeControlLoopTime(avgFreq: Int, currentFreq: Int, minFreq: Int, maxFreq: Int) {
+        guard let handle = fileHandles["control_loop_time"] else { return }
+        let timestamp = dateFormatter.string(from: Date())
+        let line = "\(timestamp),\(avgFreq),\(currentFreq),\(minFreq),\(maxFreq)\n"
         
         if let data = line.data(using: .utf8) {
             handle.write(data)

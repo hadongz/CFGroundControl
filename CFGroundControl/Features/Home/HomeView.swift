@@ -334,6 +334,7 @@ struct HomeView: View {
                 
                 AttitudeChartView(telemetryData: $viewModel.telemetryData)
                 MotorChartView(telemetryData: $viewModel.telemetryData)
+                ControlTimeLoopChartView(telemetryData: $viewModel.telemetryData)
                 PIDChartView(telemetryData: $viewModel.telemetryData)
                 ThrottleChartView(telemetryData: $viewModel.telemetryData)
             }

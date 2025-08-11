@@ -55,6 +55,7 @@ struct AttitudeChartView: View {
             }
             .frame(height: 150)
             .chartYScale(domain: -45...45)
+            .padding(.vertical, 10)
             .clipped()
             .chartYAxis {
                 AxisMarks(position: .leading, values: .stride(by: 10)) { _ in

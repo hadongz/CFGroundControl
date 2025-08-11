@@ -23,11 +23,19 @@ struct SessionListView: View {
         NavigationBarView(title: "Session List") {
             ScrollView {
                 if viewModel.sessionList.isEmpty {
-                    VStack {
+                    Spacer(minLength: 100)
+                    
+                    VStack(spacing: 10) {
+                        Image.illustration(.illustrationWarning)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 200, height: 250)
+                            
                         Text("No session found")
-                            .font(.cfFont(.semiBold, .bodyLarge))
+                            .font(.cfFont(.semiBold, .title))
                             .foregroundStyle(Color.cfColor(.black300))
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(20)
                     
                 } else {
