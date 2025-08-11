@@ -17,7 +17,9 @@ struct ModernButtonView: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: icon)
+                if icon != "" {
+                    Image(systemName: icon)
+                }
                 Text(title)
                     .font(.cfFont(.semiBold, .bodySmall))
             }

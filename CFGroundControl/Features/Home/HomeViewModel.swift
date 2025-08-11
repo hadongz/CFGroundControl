@@ -74,6 +74,10 @@ final class HomeViewModel: ObservableObject {
     @Published var parametersRefreshTrigger = UUID()
     
     @Published var isRecordingSession: Bool = false
+    @Published var maxAutoThrottleValue: String = ""
+    
+    @Published var takeoffActivated: Bool = false
+    @Published var landActivated: Bool = false
     
     var currentContrroller: GCController?
     private var drone: Drone?
@@ -87,12 +91,15 @@ final class HomeViewModel: ObservableObject {
     
     private let maxStatusTextCount: Int = 100
     
-    private var autoThrottleActive: Bool = false
-    private let maxAutoThrottle: Float = 0.40
+    private var maxAutoThrottle: Float = 0.35
     
     deinit {
         disconnectMAVLink()
         udpListener?.cancel()
+    }
+    
+    init() {
+        maxAutoThrottleValue = String(maxAutoThrottle)
     }
     
     func connectToMAVLink() {
@@ -167,6 +174,7 @@ final class HomeViewModel: ObservableObject {
                     print("Failed to disarm drone: \(error)")
                     self?.resetStickValue()
                     self?.resetTelemetryData()
+                    self?.resetTakeoffLandState()
                     self?.saveSession()
                     self?.disposeManualControlMAVLink()
                 }
@@ -226,6 +234,9 @@ final class HomeViewModel: ObservableObject {
     func disconnectMAVLink() {
         isMAVLinkConnected = false
         connectionStatus = "Disconnected"
+        resetStickValue()
+        resetTakeoffLandState()
+        resetTelemetryData()
         drone?.disconnect()
         drone = nil
     }
@@ -233,6 +244,9 @@ final class HomeViewModel: ObservableObject {
     func stickDidConnect(_ controller: GCController) {
         isStickConnected = true
         currentContrroller = controller
+        resetStickValue()
+        resetTakeoffLandState()
+        resetTelemetryData()
         setupInputControllers(controller)
     }
     
@@ -240,6 +254,14 @@ final class HomeViewModel: ObservableObject {
         isStickConnected = false
         currentContrroller = nil
         resetStickValue()
+    }
+    
+    func updateMaxAutoThrottle(_ value: String) {
+        if let value = Float(value), abs(value) >= 0.0 && abs(value) <= 1.0 {
+            maxAutoThrottle = value
+        } else {
+            maxAutoThrottleValue = String(maxAutoThrottle)
+        }
     }
     
     private func resetStickValue() {
@@ -257,6 +279,11 @@ final class HomeViewModel: ObservableObject {
         telemetryData.controlLoopTimeData.removeAll()
     }
     
+    private func resetTakeoffLandState() {
+        takeoffActivated = false
+        landActivated = false
+    }
+    
     private func setupInputControllers(_ controller: GCController) {
         guard let gamepad = controller.extendedGamepad else { return }
         
@@ -271,8 +298,9 @@ final class HomeViewModel: ObservableObject {
         gamepad.rightThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
             guard let self else { return }
             self.rightStickX = applyDeadband(xValue, deadband: deadband)
-            if autoThrottleActive && abs(yValue) > 0.0 {
-                autoThrottleActive.toggle()
+            if takeoffActivated && abs(yValue) > 0.0 {
+                takeoffActivated = false
+                landActivated = false
                 self.rightStickY = applyDeadband(yValue, deadband: deadband)
             } else {
                 self.rightStickY = applyDeadband(yValue, deadband: deadband)
@@ -303,7 +331,13 @@ final class HomeViewModel: ObservableObject {
         
         gamepad.buttonY.pressedChangedHandler = { [weak self] (input, value, isPressed) in
             guard let self, isPressed, telemetryData.isArmed else { return }
-            autoThrottleActive.toggle()
+            if takeoffActivated {
+                takeoffActivated = false
+                landActivated = true
+            } else {
+                takeoffActivated = true
+                landActivated = false
+            }
         }
     }
     
@@ -341,18 +375,27 @@ final class HomeViewModel: ObservableObject {
         guard let drone else { return }
         
         Observable<Int>
-            .interval(.milliseconds(250), scheduler: MavScheduler)
+            .interval(.milliseconds(300), scheduler: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] _ in
                 guard let self, telemetryData.isArmed else { return }
-                if autoThrottleActive && rightStickY <= maxAutoThrottle {
+                
+                if takeoffActivated && landActivated {
+                    takeoffActivated = false
+                }
+                
+                if takeoffActivated && abs(rightStickY) <= maxAutoThrottle {
                     rightStickY += 0.01
+                }
+                
+                if landActivated && abs(rightStickY) >= 0.0 {
+                    rightStickY -= 0.01
                 }
             })
             .disposed(by: disposeBag)
         
         controlTimer = Observable<Int>
-            .interval(.milliseconds(100), scheduler: MavParamScheduler)
+            .interval(.milliseconds(80), scheduler: MavParamScheduler)
             .subscribe(onNext: { [weak self] _ in
                 guard let self, telemetryData.isArmed else { return }
                 _ = drone.manualControl
@@ -379,7 +422,12 @@ final class HomeViewModel: ObservableObject {
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] armed in
-                self?.telemetryData.isArmed = armed
+                guard let self else { return }
+                if telemetryData.isArmed != armed {
+                    resetStickValue()
+                    resetTakeoffLandState()
+                }
+                telemetryData.isArmed = armed
             })
             .disposed(by: disposeBag)
         

@@ -52,13 +52,17 @@ struct HomeView: View {
                         }
                         
                         if viewModel.isMAVLinkConnected {
+                            takeoffAndLandView
+                        }
+                        
+                        if viewModel.isMAVLinkConnected {
                             parametersListView
                         }
                         
                         if viewModel.isMAVLinkConnected {
                             mavlinkMessagesCard
                         }
-
+                        
                         if viewModel.isMAVLinkConnected && viewModel.isStickConnected {
                             controllerInputCard
                         }
@@ -177,7 +181,7 @@ struct HomeView: View {
                         title: "Disconnect",
                         icon: "wifi.slash",
                         color: .red,
-                        isEnabled: viewModel.isMAVLinkConnected
+                        isEnabled: true
                     ) {
                         appUtility.addImpactFeedback()
                         viewModel.disconnectMAVLink()
@@ -325,6 +329,7 @@ struct HomeView: View {
         }
     }
     
+    // MARK: - Analysis Charts Messages
     private var analysisChartsView: some View {
         ModernCardView {
             VStack(alignment: .leading, spacing: 12) {
@@ -334,13 +339,14 @@ struct HomeView: View {
                 
                 AttitudeChartView(telemetryData: $viewModel.telemetryData)
                 MotorChartView(telemetryData: $viewModel.telemetryData)
-                ControlTimeLoopChartView(telemetryData: $viewModel.telemetryData)
                 PIDChartView(telemetryData: $viewModel.telemetryData)
+                ControlTimeLoopChartView(telemetryData: $viewModel.telemetryData)
                 ThrottleChartView(telemetryData: $viewModel.telemetryData)
             }
         }
     }
     
+    // MARK: - Paramater List View
     private var parametersListView: some View {
         ModernCardView {
             VStack(alignment: .leading, spacing: 12) {
@@ -393,6 +399,47 @@ struct HomeView: View {
                     }
                 }
                 .id(viewModel.parametersRefreshTrigger)
+            }
+        }
+    }
+    
+    private var takeoffAndLandView: some View {
+        ModernCardView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Auto Throttle Value")
+                    .font(.cfFont(.bold, .title))
+                    .foregroundColor(Color.cfColor(.jetBlack))
+                
+                HStack(spacing: 8) {
+                    ParameterFieldView(
+                        title: "",
+                        value: $viewModel.maxAutoThrottleValue,
+                        validator: ParameterFieldView.Validator.floatValidator(min: 0.0, max: 1.0),
+                        onSubmit: { value in
+                            viewModel.updateMaxAutoThrottle(value)
+                        }
+                    )
+                    
+                    ModernButtonView(
+                        title: "Takeoff",
+                        icon: "",
+                        color: .green,
+                        isEnabled: !viewModel.takeoffActivated && viewModel.telemetryData.isArmed
+                    ) {
+                        viewModel.takeoffActivated = true
+                        viewModel.landActivated = false
+                    }
+                    
+                    ModernButtonView(
+                        title: "Land",
+                        icon: "",
+                        color: .cfColor(.darkYellow),
+                        isEnabled: !viewModel.landActivated && viewModel.telemetryData.isArmed
+                    ) {
+                        viewModel.takeoffActivated = false
+                        viewModel.landActivated = true
+                    }
+                }
             }
         }
     }
