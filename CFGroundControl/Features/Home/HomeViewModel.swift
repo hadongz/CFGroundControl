@@ -422,80 +422,80 @@ final class HomeViewModel: ObservableObject {
                 let statusText = status.text
                 let timestamp = Date()
                 
-                if statusText.hasPrefix("MOTOR:") {
-                    let motorValues = statusText
-                        .replacingOccurrences(of: "MOTOR:", with: "")
+                if statusText.hasPrefix("DBG:") {
+                    let debugValues = statusText
+                        .replacingOccurrences(of: "DBG:", with: "")
+                        .split(separator: "|")
+                    
+                    guard debugValues.count >= 3 else { return }
+                    
+                    let motorValues = debugValues[0]
                         .split(separator: ",")
                         .compactMap { Int($0) }
                     
-                    guard motorValues.count >= 4 else { return }
-                    
-                    let data = MotorData(
-                        timestamp: timestamp,
-                        motor1: motorValues[0],
-                        motor2: motorValues[1],
-                        motor3: motorValues[2],
-                        motor4: motorValues[3]
-                    )
-                    
-                    telemetryData.motorData.append(data)
-                    
-                    if isRecordingSession {
-                        sessionRecorder.writeMotors(
-                            m1: data.motor1,
-                            m2: data.motor2,
-                            m3: data.motor3,
-                            m4: data.motor4
+                    if motorValues.count >= 4 {
+                        let data = MotorData(
+                            timestamp: timestamp,
+                            motor1: motorValues[0],
+                            motor2: motorValues[1],
+                            motor3: motorValues[2],
+                            motor4: motorValues[3]
                         )
+                        
+                        telemetryData.motorData.append(data)
+                        
+                        if isRecordingSession {
+                            sessionRecorder.writeMotors(
+                                m1: data.motor1,
+                                m2: data.motor2,
+                                m3: data.motor3,
+                                m4: data.motor4
+                            )
+                        }
+                        
+                        while telemetryData.motorData.count > 50 {
+                            telemetryData.motorData.removeFirst()
+                        }
                     }
                     
-                    while telemetryData.motorData.count > 50 {
-                        telemetryData.motorData.removeFirst()
-                    }
-                    
-                } else if statusText.hasPrefix("PID:") {
-                    let pidValues = statusText
-                        .replacingOccurrences(of: "PID:", with: "")
+                    let pidValues = debugValues[1]
                         .split(separator: ",")
                         .compactMap { Float($0) }
                     
-                    guard pidValues.count >= 3 else { return }
-                    
-                    let data = EulerAngleData(
-                        timestamp: timestamp,
-                        roll: pidValues[0],
-                        pitch: pidValues[1],
-                        yaw: pidValues[2]
-                    )
-                    
-                    telemetryData.pidData.append(data)
-                    
-                    if isRecordingSession {
-                        sessionRecorder.writePID(roll: pidValues[0], pitch: pidValues[1], yaw: pidValues[2])
+                    if pidValues.count >= 3 {
+                        let data = EulerAngleData(
+                            timestamp: timestamp,
+                            roll: pidValues[0],
+                            pitch: pidValues[1],
+                            yaw: pidValues[2]
+                        )
+                        
+                        telemetryData.pidData.append(data)
+                        
+                        if isRecordingSession {
+                            sessionRecorder.writePID(roll: pidValues[0], pitch: pidValues[1], yaw: pidValues[2])
+                        }
+                        
+                        while telemetryData.pidData.count > 50 {
+                            telemetryData.pidData.removeFirst()
+                        }
                     }
                     
-                    while telemetryData.pidData.count > 50 {
-                        telemetryData.pidData.removeFirst()
-                    }
-                    
-                } else if statusText.hasPrefix("THROTTLE:") {
-                    let throttleString = statusText.replacingOccurrences(of: "THROTTLE:", with: "")
-                    
-                    guard let throttleValue = Float(throttleString) else { return }
-                    
-                    let data = ThrottleData(
-                        timestamp: timestamp,
-                        value: throttleValue
-                    )
-                    
-                    telemetryData.throttleData.append(data)
-                    
-                    if isRecordingSession {
-                        sessionRecorder.writeThrottle(value: throttleValue)
-                    }
-                    
-                    while telemetryData.throttleData.count > 25 {
-                        telemetryData.throttleData.removeFirst()
+                    if let throttleValue = Float(debugValues[2]) {
+                        let data = ThrottleData(
+                            timestamp: timestamp,
+                            value: throttleValue
+                        )
+                        
+                        telemetryData.throttleData.append(data)
+                        
+                        if isRecordingSession {
+                            sessionRecorder.writeThrottle(value: throttleValue)
+                        }
+                        
+                        while telemetryData.throttleData.count > 25 {
+                            telemetryData.throttleData.removeFirst()
+                        }
                     }
                     
                 } else if statusText.hasPrefix("TARGET:") {
