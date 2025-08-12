@@ -24,7 +24,43 @@ struct HomeView: View {
     }
     
     var body: some View {
-        ZStack {
+        VStack(spacing: 0) {
+            headerView
+            
+            ScrollView {
+                LazyVStack(spacing: 20) {
+                    Spacer(minLength: 0)
+                    
+                    telemetryGrid
+                    
+                    connectionStatusCard
+                    
+                    if viewModel.isMAVLinkConnected {
+                        analysisChartsView
+                    }
+                    
+                    if viewModel.isMAVLinkConnected {
+                        takeoffAndLandView
+                    }
+                    
+                    if viewModel.isMAVLinkConnected {
+                        parametersListView
+                    }
+                    
+                    if viewModel.isMAVLinkConnected {
+                        mavlinkMessagesCard
+                    }
+                    
+                    if viewModel.isMAVLinkConnected && viewModel.isStickConnected {
+                        controllerInputCard
+                    }
+                    
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+            }
+        }
+        .background(
             LinearGradient(
                 colors: [
                     Color.cfColor(.white),
@@ -35,44 +71,7 @@ struct HomeView: View {
                 endPoint: .bottom
             )
             .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                headerView
-                
-                ScrollView {
-                    LazyVStack(spacing: 20) {
-                        Spacer(minLength: 0)
-                        
-                        telemetryGrid
-                        
-                        connectionStatusCard
-                        
-                        if viewModel.isMAVLinkConnected {
-                            analysisChartsView
-                        }
-                        
-                        if viewModel.isMAVLinkConnected {
-                            takeoffAndLandView
-                        }
-                        
-                        if viewModel.isMAVLinkConnected {
-                            parametersListView
-                        }
-                        
-                        if viewModel.isMAVLinkConnected {
-                            mavlinkMessagesCard
-                        }
-                        
-                        if viewModel.isMAVLinkConnected && viewModel.isStickConnected {
-                            controllerInputCard
-                        }
-                        
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
-                }
-            }
-        }
+        )
         .onReceive(NotificationCenter.default.publisher(for: .GCControllerDidConnect)) { _ in
             guard let controller = GCController.controllers().first else { return }
             viewModel.stickDidConnect(controller)
@@ -97,7 +96,7 @@ struct HomeView: View {
                         .font(.cfFont(.bold, .title))
                         .foregroundColor(Color.cfColor(.jetBlack))
                     
-                    Text("ESP8266 MAVLink Controller")
+                    Text("MAVLink Message Controller")
                         .font(.cfFont(.regular, .small))
                         .foregroundColor(Color.cfColor(.black300))
                 }
@@ -158,7 +157,7 @@ struct HomeView: View {
                 
                 VStack(spacing: 12) {
                     InfoRowView(label: "Status", value: viewModel.connectionStatus)
-                    InfoRowView(label: "Protocol", value: "MAVLink")
+                    InfoRowView(label: "Protocol", value: "UDP")
                     InfoRowView(label: "Port", value: viewModel.port)
                     
                     if let error = viewModel.errorMessage {

@@ -81,7 +81,18 @@ struct SessionListView: View {
                     .padding(20)
                 }
             }
-            .background(Color.cfColor(.lightYellow))
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color.cfColor(.white),
+                        Color.cfColor(.lightYellow),
+                        Color.cfColor(.yellow)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+            )
             .onViewDidLoad {
                 viewModel.loadSessionList()
             }

@@ -45,7 +45,6 @@ struct TelemetryCardView: View {
         .background(
             LinearGradient(
                 colors: [
-                    Color.cfColor(.white),
                     Color.cfColor(.lightYellow),
                     Color.cfColor(.yellow)
                 ],
