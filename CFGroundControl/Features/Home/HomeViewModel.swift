@@ -86,6 +86,7 @@ final class HomeViewModel: ObservableObject {
     
     private let disposeBag = DisposeBag()
     private var controlTimer: Disposable?
+    private var autoThrottleTimer: Disposable?
     
     private let sessionRecorder = StreamingSessionRecorder()
     
@@ -140,6 +141,7 @@ final class HomeViewModel: ObservableObject {
         guard let drone = drone, isMAVLinkConnected else { return }
         
         setupManualControlMAVLink()
+        getAllParameters()
         
         drone.action.arm()
             .subscribe(on: MavScheduler)
@@ -147,6 +149,8 @@ final class HomeViewModel: ObservableObject {
             .subscribe(
                 onCompleted: { [weak self] in
                     self?.resetStickValue()
+                    self?.resetTelemetryData()
+                    self?.resetTakeoffLandState()
                 },
                 onError: { error in
                     print("Failed to arm drone: \(error)")
@@ -166,15 +170,12 @@ final class HomeViewModel: ObservableObject {
             .subscribe(
                 onCompleted: { [weak self] in
                     self?.resetStickValue()
-                    self?.resetTelemetryData()
                     self?.saveSession()
                     self?.disposeManualControlMAVLink()
                 },
                 onError: { [weak self] error in
                     print("Failed to disarm drone: \(error)")
                     self?.resetStickValue()
-                    self?.resetTelemetryData()
-                    self?.resetTakeoffLandState()
                     self?.saveSession()
                     self?.disposeManualControlMAVLink()
                 }
@@ -287,7 +288,7 @@ final class HomeViewModel: ObservableObject {
     private func setupInputControllers(_ controller: GCController) {
         guard let gamepad = controller.extendedGamepad else { return }
         
-        let deadband: Float = 0.35
+        let deadband: Float = 0.25
         
         gamepad.leftThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
             guard let self else { return }
@@ -362,6 +363,7 @@ final class HomeViewModel: ObservableObject {
                 if lastConnectionState != isMAVLinkConnected {
                     resetTelemetryData()
                     resetStickValue()
+                    resetTakeoffLandState()
                 }
                 
                 if connectionState.isConnected {
@@ -374,8 +376,8 @@ final class HomeViewModel: ObservableObject {
     private func setupManualControlMAVLink() {
         guard let drone else { return }
         
-        Observable<Int>
-            .interval(.milliseconds(300), scheduler: MavScheduler)
+        autoThrottleTimer = Observable<Int>
+            .interval(.milliseconds(250), scheduler: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] _ in
                 guard let self, telemetryData.isArmed else { return }
@@ -392,7 +394,6 @@ final class HomeViewModel: ObservableObject {
                     rightStickY -= 0.01
                 }
             })
-            .disposed(by: disposeBag)
         
         controlTimer = Observable<Int>
             .interval(.milliseconds(80), scheduler: MavParamScheduler)
@@ -412,7 +413,9 @@ final class HomeViewModel: ObservableObject {
     
     private func disposeManualControlMAVLink() {
         controlTimer?.dispose()
+        autoThrottleTimer?.dispose()
         controlTimer = nil
+        autoThrottleTimer = nil
     }
     
     private func startTelemetrySubscriptions() {
@@ -615,7 +618,6 @@ final class HomeViewModel: ObservableObject {
     
     private func recordSession() {
         guard telemetryData.isArmed, isMAVLinkConnected else { return }
-        refreshParameters()
         isRecordingSession = true
         try? sessionRecorder.startRecording()
     }

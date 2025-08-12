@@ -72,7 +72,9 @@ struct ParamaterRowView: View {
             HStack {
                 Text(name)
                     .foregroundStyle(Color.cfColor(.jetBlack))
-                    .font(.cfFont(.semiBold, .bodySmall))
+                    .font(.cfFont(.regular, .small))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 
                 Spacer()
                 
