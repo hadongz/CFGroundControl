@@ -13,8 +13,8 @@ import MavsdkServer
 import RxSwift
 import Network
 
-let MavScheduler = ConcurrentDispatchQueueScheduler(qos: .default)
-let MavParamScheduler = SerialDispatchQueueScheduler(qos: .utility)
+let MavScheduler = ConcurrentDispatchQueueScheduler(qos: .userInitiated)
+let MavSerialScheduler = SerialDispatchQueueScheduler(qos: .userInteractive)
 
 struct MotorData: Identifiable {
     let id: UUID = UUID()
@@ -37,10 +37,8 @@ struct ThrottleData: Identifiable {
 struct ControlLoopTimeData: Identifiable {
     let id: UUID = UUID()
     let timestamp: Date
-    let avgFreqHz: Int
-    let currentFreqHz: Int
-    let minFreqHz: Int
-    let maxFreqHz: Int
+    let avgLoopTime: Int
+    let currentLoopTime: Int
 }
 
 struct TelemetryData {
@@ -80,8 +78,8 @@ final class HomeViewModel: ObservableObject {
     @Published var landActivated: Bool = false
     
     var currentContrroller: GCController?
+    private var connectingDrone: Bool = false
     private var drone: Drone?
-    private var udpListener: NWListener?
     private var discoveredDroneIP: String?
     
     private let disposeBag = DisposeBag()
@@ -90,13 +88,10 @@ final class HomeViewModel: ObservableObject {
     
     private let sessionRecorder = StreamingSessionRecorder()
     
-    private let maxStatusTextCount: Int = 100
-    
-    private var maxAutoThrottle: Float = 0.35
+    private var maxAutoThrottle: Float = 0.30
     
     deinit {
         disconnectMAVLink()
-        udpListener?.cancel()
     }
     
     init() {
@@ -104,7 +99,10 @@ final class HomeViewModel: ObservableObject {
     }
     
     func connectToMAVLink() {
+        guard !connectingDrone else { return }
+        
         connectionStatus = "Connecting to MAVSDK Server..."
+        connectingDrone = true
         
         let drone = Drone()
         
@@ -115,10 +113,13 @@ final class HomeViewModel: ObservableObject {
                 onError: { [weak self] error in
                     self?.connectionStatus = "Connection Failed: \(error.localizedDescription)"
                     self?.errorMessage = error.localizedDescription
+                    self?.connectingDrone = false
                 },
                 onCompleted: { [weak self] in
+                    debugPrint("CONNECT COMPLETED")
                     self?.drone = drone
                     self?.subscribeMAVLinkConnection()
+                    self?.connectingDrone = false
                 }
             )
             .andThen(Observable<Any>.never())
@@ -167,19 +168,11 @@ final class HomeViewModel: ObservableObject {
         drone.action.kill()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe(
-                onCompleted: { [weak self] in
-                    self?.resetStickValue()
-                    self?.saveSession()
-                    self?.disposeManualControlMAVLink()
-                },
-                onError: { [weak self] error in
-                    print("Failed to disarm drone: \(error)")
-                    self?.resetStickValue()
-                    self?.saveSession()
-                    self?.disposeManualControlMAVLink()
-                }
-            )
+            .subscribe({ [weak self] _ in
+                self?.resetStickValue()
+                self?.saveSession()
+                self?.disposeManualControlMAVLink()
+            })
             .disposed(by: disposeBag)
     }
     
@@ -189,7 +182,7 @@ final class HomeViewModel: ObservableObject {
         isLoadingParameters = true
         
         drone.param.getAllParams()
-            .subscribe(on: MavParamScheduler)
+            .subscribe(on: MavSerialScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(
                 onSuccess: { [weak self] params in
@@ -215,7 +208,7 @@ final class HomeViewModel: ObservableObject {
         guard let drone = drone, let value = value else { return }
         
         drone.param.setParamFloat(name: name, value: value)
-            .subscribe(on: MavParamScheduler)
+            .subscribe(on: MavSerialScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(
                 onCompleted: { [weak self] in
@@ -238,6 +231,7 @@ final class HomeViewModel: ObservableObject {
         resetStickValue()
         resetTakeoffLandState()
         resetTelemetryData()
+        disposeManualControlMAVLink()
         drone?.disconnect()
         drone = nil
     }
@@ -340,6 +334,11 @@ final class HomeViewModel: ObservableObject {
                 landActivated = false
             }
         }
+        
+        gamepad.buttonMenu.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard let self, isPressed else { return }
+            requestIMURecalibration()
+        }
     }
     
     private func applyDeadband(_ value: Float, deadband: Float) -> Float {
@@ -368,6 +367,8 @@ final class HomeViewModel: ObservableObject {
                 
                 if connectionState.isConnected {
                     startTelemetrySubscriptions()
+                } else {
+                    disconnectMAVLink()
                 }
             })
             .disposed(by: disposeBag)
@@ -396,7 +397,7 @@ final class HomeViewModel: ObservableObject {
             })
         
         controlTimer = Observable<Int>
-            .interval(.milliseconds(80), scheduler: MavParamScheduler)
+            .interval(.milliseconds(80), scheduler: MavSerialScheduler)
             .subscribe(onNext: { [weak self] _ in
                 guard let self, telemetryData.isArmed else { return }
                 _ = drone.manualControl
@@ -435,7 +436,7 @@ final class HomeViewModel: ObservableObject {
             .disposed(by: disposeBag)
         
         drone.telemetry.attitudeEuler
-            .throttle(.milliseconds(100), scheduler: MainScheduler.instance)
+            .distinctUntilChanged()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] attitudeEuler in
@@ -466,6 +467,7 @@ final class HomeViewModel: ObservableObject {
             .disposed(by: disposeBag)
         
         drone.telemetry.statusText
+            .distinctUntilChanged()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] status in
@@ -581,14 +583,12 @@ final class HomeViewModel: ObservableObject {
                         .split(separator: ",")
                         .compactMap { Int($0) }
                     
-                    guard targetValues.count >= 4 else { return }
+                    guard targetValues.count >= 2 else { return }
                     
                     let data = ControlLoopTimeData(
                         timestamp: timestamp,
-                        avgFreqHz: targetValues[0],
-                        currentFreqHz: targetValues[1],
-                        minFreqHz: targetValues[2],
-                        maxFreqHz: targetValues[3]
+                        avgLoopTime: targetValues[0],
+                        currentLoopTime: targetValues[1]
                     )
                     
                     telemetryData.controlLoopTimeData.append(data)
@@ -608,7 +608,7 @@ final class HomeViewModel: ObservableObject {
                     
                 } else {
                     telemetryData.statusText.append(statusText)
-                    while telemetryData.statusText.count > maxStatusTextCount {
+                    while telemetryData.statusText.count > 100 {
                         telemetryData.statusText.removeFirst()
                     }
                 }
@@ -626,5 +626,17 @@ final class HomeViewModel: ObservableObject {
         guard isRecordingSession else { return }
         isRecordingSession = false
         sessionRecorder.stopRecording(parameters: telemetryData.floatParams)
+    }
+    
+    private func requestIMURecalibration() {
+        guard let drone else { return }
+        
+        drone.calibration.calibrateGyro()
+            .subscribe(on: MavScheduler)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { _ in
+                debugPrint("Calibrate Gyro")
+            })
+            .disposed(by: disposeBag)
     }
 }

@@ -13,15 +13,18 @@ struct NavigationBarView<Content: View>: View {
     
     private let title: String
     private let content: () -> Content
+    private let rightItemView: AnyView?
     private let didTapBack: (() -> Void)?
     
     init(
         title: String,
         didTapBack: (() -> Void)? = nil,
+        rightItemView: AnyView? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.title = title
         self.didTapBack = didTapBack
+        self.rightItemView = rightItemView
         self.content = content
     }
     
@@ -60,9 +63,13 @@ struct NavigationBarView<Content: View>: View {
                 
                 Spacer()
                 
-                Rectangle()
-                    .fill(.clear)
-                    .frame(width: 25, height: 25)
+                if let rightItemView {
+                    rightItemView
+                } else {
+                     Rectangle()
+                        .fill(.clear)
+                        .frame(width: 25, height: 25)
+                }
             }
         }
         .padding(20)

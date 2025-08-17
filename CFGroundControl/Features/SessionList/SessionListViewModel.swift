@@ -57,4 +57,34 @@ final class SessionListViewModel: ObservableObject {
         }
     }
     
+    func shareAllSession() -> URL? {
+        guard
+            !sessionList.isEmpty,
+            let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        else {
+            debugPrint("No sessions available")
+            return nil
+        }
+        
+        let dirPath = documentsDir.appendingPathComponent("DroneSessions")
+        
+        guard FileManager.default.fileExists(atPath: dirPath.path) else {
+            debugPrint("DroneSessions directory doesn't exist")
+            return nil
+        }
+        
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let destinationURL = FileManager.default.temporaryDirectory.appendingPathComponent("DroneSessions_\(timestamp).zip")
+        try? FileManager.default.removeItem(at: destinationURL)
+        
+        do {
+            try FileManager.default.zipItem(at: dirPath, to: destinationURL)
+            debugPrint("Successfully created zip at: \(destinationURL.path)")
+            return destinationURL
+        } catch {
+            debugPrint("Failed to create zip: \(error)")
+            return nil
+        }
+    }
+    
 }

@@ -30,7 +30,7 @@ struct ControlTimeLoopChartView: View {
                                 .font(.cfFont(.semiBold, .bodySmall))
                                 .foregroundStyle(Color.cfColor(.black300))
                             
-                            Text("\(lastData.avgFreqHz)")
+                            Text("\(lastData.avgLoopTime)")
                                 .font(.cfFont(.regular, .bodyLarge))
                                 .foregroundStyle(Color.cfColor(.black300))
                         }
@@ -40,30 +40,11 @@ struct ControlTimeLoopChartView: View {
                                 .font(.cfFont(.semiBold, .bodySmall))
                                 .foregroundStyle(Color.cfColor(.black300))
                             
-                            Text("\(lastData.currentFreqHz)")
+                            Text("\(lastData.currentLoopTime)")
                                 .font(.cfFont(.regular, .bodyLarge))
                                 .foregroundStyle(Color.cfColor(.black300))
                         }
                         
-                        VStack(spacing: 2) {
-                            Text("Min")
-                                .font(.cfFont(.semiBold, .bodySmall))
-                                .foregroundStyle(Color.cfColor(.black300))
-                            
-                            Text("\(lastData.minFreqHz)")
-                                .font(.cfFont(.regular, .bodyLarge))
-                                .foregroundStyle(Color.cfColor(.black300))
-                        }
-                        
-                        VStack(spacing: 2) {
-                            Text("Max")
-                                .font(.cfFont(.semiBold, .bodySmall))
-                                .foregroundStyle(Color.cfColor(.black300))
-                            
-                            Text("\(lastData.maxFreqHz)")
-                                .font(.cfFont(.regular, .title))
-                                .foregroundStyle(Color.cfColor(.black300))
-                        }
                     } else {
                         Text("No data yet")
                             .font(.cfFont(.semiBold, .bodyLarge))
@@ -101,14 +82,14 @@ struct ControlTimeLoopChartView: View {
                         ForEach(telemetryData.controlLoopTimeData) { data in
                             LineMark(
                                 x: .value("Time", data.timestamp),
-                                y: .value("Current Freq Hz", data.currentFreqHz)
+                                y: .value("Current Freq Hz", data.currentLoopTime)
                             )
-                            .foregroundStyle(colorForFrequency(data.currentFreqHz))
+                            .foregroundStyle(colorForFrequency(data.currentLoopTime))
                             .lineStyle(StrokeStyle(lineWidth: 3))
                         }
                     }
                     .frame(height: 250)
-                    .chartYScale(domain: 500...2000)
+                    .chartYScale(domain: 150...1500)
                     .padding(.vertical, 10)
                     .clipped()
                     .chartYAxis {
@@ -131,7 +112,7 @@ struct ControlTimeLoopChartView: View {
                                 Rectangle()
                                     .fill(.red)
                                     .frame(width: 16, height: 3)
-                                Text("< 750Hz")
+                                Text("< 250Hz")
                                     .font(.cfFont(.semiBold, .small))
                             }
                             
@@ -139,7 +120,7 @@ struct ControlTimeLoopChartView: View {
                                 Rectangle()
                                     .fill(.yellow)
                                     .frame(width: 16, height: 3)
-                                Text("750-1000Hz")
+                                Text("250-500Hz")
                                     .font(.cfFont(.semiBold, .small))
                             }
                             
@@ -147,7 +128,7 @@ struct ControlTimeLoopChartView: View {
                                 Rectangle()
                                     .fill(.green)
                                     .frame(width: 16, height: 3)
-                                Text("≥ 1000Hz")
+                                Text("≥ 500")
                                     .font(.cfFont(.semiBold, .small))
                             }
                         }
@@ -163,9 +144,9 @@ struct ControlTimeLoopChartView: View {
     
     private func colorForFrequency(_ frequency: Int) -> Color {
         switch frequency {
-        case ..<750:
+        case ..<250:
             return .red
-        case 750..<1000:
+        case 250..<500:
             return .yellow
         default:
             return .green

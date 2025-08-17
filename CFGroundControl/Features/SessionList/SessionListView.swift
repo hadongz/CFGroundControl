@@ -20,7 +20,7 @@ struct SessionListView: View {
     }
     
     var body: some View {
-        NavigationBarView(title: "Session List") {
+        NavigationBarView(title: "Session List", rightItemView: AnyView(rightNavBarView)) {
             ScrollView {
                 if viewModel.sessionList.isEmpty {
                     Spacer(minLength: 100)
@@ -108,6 +108,21 @@ struct SessionListView: View {
                 Text("Are you sure you want to delete this session? This action cannot be undone.")
             }
         }
+    }
+    
+    private var rightNavBarView: some View {
+        Button {
+            guard let zipUrl = viewModel.shareAllSession() else { return }
+            let shareableFile = ShareableFile(url: zipUrl, title: "DroneSessions")
+            appUtility.share(items: [shareableFile]) {
+                try? FileManager.default.removeItem(at: zipUrl)
+            }
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Color.cfColor(.darkYellow))
+        }
+
     }
 }
 

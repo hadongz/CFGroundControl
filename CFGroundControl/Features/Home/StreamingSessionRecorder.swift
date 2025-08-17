@@ -128,7 +128,6 @@ final class StreamingSessionRecorder {
         
         fileHandles.removeAll()
         saveAllParameters(parameters)
-        savePIDParameters(parameters)
         saveMetadata(parameters: parameters)
     }
     
@@ -148,59 +147,15 @@ final class StreamingSessionRecorder {
         try? csvText.write(to: fileURL, atomically: true, encoding: .utf8)
     }
     
-    private func savePIDParameters(_ parameters: [Param.FloatParam]) {
-        guard let sessionDir = sessionDirectory else { return }
-        
-        let fileURL = sessionDir.appendingPathComponent("pid_parameters.csv")
-        
-        var paramDict: [String: Float] = [:]
-        for param in parameters {
-            paramDict[param.name] = param.value
-        }
-        
-        let pidParams = [
-            ("ROLL_P", "roll_kp"),
-            ("ROLL_I", "roll_ki"),
-            ("ROLL_D", "roll_kd"),
-            ("PITCH_P", "pitch_kp"),
-            ("PITCH_I", "pitch_ki"),
-            ("PITCH_D", "pitch_kd"),
-            ("YAW_P", "yaw_kp"),
-            ("YAW_I", "yaw_ki"),
-            ("YAW_D", "yaw_kd")
-        ]
-        
-        let headers = pidParams.map { $0.1 }.joined(separator: ",")
-        var csvText = "\(headers)\n"
-        
-        let values = pidParams.map { paramName, _ in
-            if let value = paramDict[paramName] {
-                return String(value)
-            } else {
-                return "N/A"
-            }
-        }
-        csvText += values.joined(separator: ",") + "\n"
-        
-        try? csvText.write(to: fileURL, atomically: true, encoding: .utf8)
-    }
-    
     private func saveMetadata(parameters: [Param.FloatParam]) {
         guard let sessionDir = sessionDirectory else { return }
         
         let fileURL = sessionDir.appendingPathComponent("session_info.json")
         
-        let pidParameters = parameters.filter { param in
-            param.name.contains("ROLL_") ||
-            param.name.contains("PITCH_") ||
-            param.name.contains("YAW_")
-        }
-        
         let metadata: [String: Any] = [
             "session_end": dateFormatter.string(from: Date()),
             "total_parameters": parameters.count,
-            "pid_parameters_found": pidParameters.count,
-            "pid_values": pidParameters.reduce(into: [String: Float]()) { dict, param in
+            "parameters_value": parameters.reduce(into: [String: Float]()) { dict, param in
                 dict[param.name] = param.value
             }
         ]
