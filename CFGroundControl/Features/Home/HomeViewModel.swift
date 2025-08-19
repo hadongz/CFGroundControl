@@ -41,6 +41,13 @@ struct ControlLoopTimeData: Identifiable {
     let currentLoopTime: Int
 }
 
+struct AltitudeData: Identifiable {
+    let id: UUID = UUID()
+    let timestamp: Date
+    let absoluteAltitude: Float
+    let relativeAltitude: Float
+}
+
 struct TelemetryData {
     var isArmed = false
     var attitudeData: [EulerAngleData] = []
@@ -51,6 +58,7 @@ struct TelemetryData {
     var pidData: [EulerAngleData] = []
     var targetAttitudeData: [EulerAngleData] = []
     var controlLoopTimeData: [ControlLoopTimeData] = []
+    var altitudeData: [AltitudeData] = []
 }
 
 final class HomeViewModel: ObservableObject {
@@ -337,7 +345,12 @@ final class HomeViewModel: ObservableObject {
         
         gamepad.buttonMenu.pressedChangedHandler = { [weak self] (input, value, isPressed) in
             guard let self, isPressed else { return }
-            requestIMURecalibration()
+            requestIMUCalibration()
+        }
+        
+        gamepad.buttonOptions?.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard let self, isPressed else { return }
+            requestBaroCalibration()
         }
     }
     
@@ -462,6 +475,26 @@ final class HomeViewModel: ObservableObject {
                 
                 while telemetryData.attitudeData.count > 25 {
                     telemetryData.attitudeData.removeFirst()
+                }
+            })
+            .disposed(by: disposeBag)
+        
+        drone.telemetry.position
+            .distinctUntilChanged()
+            .subscribe(on: MavScheduler)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] pos in
+                guard let self else { return }
+                let data = AltitudeData(
+                    timestamp: Date(),
+                    absoluteAltitude: pos.absoluteAltitudeM,
+                    relativeAltitude: pos.relativeAltitudeM
+                )
+                
+                telemetryData.altitudeData.append(data)
+                
+                while telemetryData.altitudeData.count > 25 {
+                    telemetryData.altitudeData.removeFirst()
                 }
             })
             .disposed(by: disposeBag)
@@ -628,7 +661,7 @@ final class HomeViewModel: ObservableObject {
         sessionRecorder.stopRecording(parameters: telemetryData.floatParams)
     }
     
-    private func requestIMURecalibration() {
+    private func requestIMUCalibration() {
         guard let drone else { return }
         
         drone.calibration.calibrateGyro()
@@ -636,6 +669,18 @@ final class HomeViewModel: ObservableObject {
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { _ in
                 debugPrint("Calibrate Gyro")
+            })
+            .disposed(by: disposeBag)
+    }
+    
+    private func requestBaroCalibration() {
+        guard let drone else { return }
+        
+        drone.calibration.calibrateLevelHorizon()
+            .subscribe(on: MavScheduler)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { _ in
+                debugPrint("Calibrate Level Horizon")
             })
             .disposed(by: disposeBag)
     }

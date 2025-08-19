@@ -15,7 +15,7 @@ struct AttitudeChartView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Attitude")
-                .font(.cfFont(.semiBold, .bodySmall))
+                .font(.cfFont(.semiBold, .bodyLarge))
                 .foregroundStyle(Color.cfColor(.black300))
             
             Chart {

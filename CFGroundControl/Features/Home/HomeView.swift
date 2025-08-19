@@ -220,7 +220,6 @@ struct HomeView: View {
                 }
             }
             
-            
             TelemetryCardView(
                 title: "Record Session",
                 value: viewModel.isRecordingSession ? "ON" : "OFF",
@@ -337,6 +336,7 @@ struct HomeView: View {
                     .foregroundColor(Color.cfColor(.jetBlack))
                 
                 AttitudeChartView(telemetryData: $viewModel.telemetryData)
+                AltitudeChartView(telemetryData: $viewModel.telemetryData)
                 MotorChartView(telemetryData: $viewModel.telemetryData)
                 PIDChartView(telemetryData: $viewModel.telemetryData)
                 ControlTimeLoopChartView(telemetryData: $viewModel.telemetryData)
@@ -402,6 +402,7 @@ struct HomeView: View {
         }
     }
     
+    // MARK: - Auto Take Off View
     private var takeoffAndLandView: some View {
         ModernCardView {
             VStack(alignment: .leading, spacing: 12) {
