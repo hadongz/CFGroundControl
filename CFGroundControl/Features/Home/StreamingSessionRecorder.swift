@@ -41,6 +41,7 @@ final class StreamingSessionRecorder {
         createCSVFile(name: "pid_output", headers: "timestamp,roll_pid,pitch_pid,yaw_pid")
         createCSVFile(name: "target_attitude", headers: "timestamp,target_roll,target_pitch,target_yaw")
         createCSVFile(name: "control_loop_time", headers: "timestamp,avg_freq,current_freq,min_freq,max_freq")
+        createCSVFile(name: "altitude", headers: "timestamp,absolute,relative")
     }
     
     private func createCSVFile(name: String, headers: String) {
@@ -111,10 +112,20 @@ final class StreamingSessionRecorder {
         }
     }
     
-    func writeControlLoopTime(avgFreq: Int, currentFreq: Int, minFreq: Int, maxFreq: Int) {
+    func writeControlLoopTime(avgFreq: Int, currentFreq: Int) {
         guard let handle = fileHandles["control_loop_time"] else { return }
         let timestamp = dateFormatter.string(from: Date())
-        let line = "\(timestamp),\(avgFreq),\(currentFreq),\(minFreq),\(maxFreq)\n"
+        let line = "\(timestamp),\(avgFreq),\(currentFreq)\n"
+        
+        if let data = line.data(using: .utf8) {
+            handle.write(data)
+        }
+    }
+    
+    func writeAltitude(absoulte: Float, relative: Float) {
+        guard let handle = fileHandles["altitude"] else { return }
+        let timestamp = dateFormatter.string(from: Date())
+        let line = "\(timestamp),\(absoulte),\(relative)\n"
         
         if let data = line.data(using: .utf8) {
             handle.write(data)
@@ -129,6 +140,45 @@ final class StreamingSessionRecorder {
         fileHandles.removeAll()
         saveAllParameters(parameters)
         saveMetadata(parameters: parameters)
+    }
+    
+    func getLastParametersData() -> [Param.FloatParam] {
+        guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return [] }
+        let sessionsDir = documentsDir.appendingPathComponent("DroneSessions")
+        
+        do {
+            let droneSession = try FileManager.default.contentsOfDirectory(atPath: sessionsDir.path)
+            guard let latestSessionDirName = droneSession.sortedBySessionTimestamp().first else { return [] }
+            let latestSessionDir = sessionsDir
+                .appendingPathComponent(latestSessionDirName)
+                .appendingPathComponent("all_parameters.csv")
+            let content = try String(contentsOf: latestSessionDir, encoding: .utf8)
+            let result = content
+                .split(separator: "\n")
+                .compactMap { line -> Param.FloatParam? in
+                    let value = line.split(separator: ",")
+                    guard let floatValue = Float(value[1]) else { return nil }
+                    return Param.FloatParam(name: String(value[0]), value: floatValue)
+                }
+            
+            return result
+        } catch {
+            debugPrint("Error reading CSV file: \(error)")
+        }
+        
+        return []
+    }
+    
+    func isSessionEmpty() -> Bool {
+        guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return true }
+        let sessionsDir = documentsDir.appendingPathComponent("DroneSessions")
+        
+        do {
+            let latestSessionDir = try FileManager.default.contentsOfDirectory(atPath: sessionsDir.path)
+            return latestSessionDir.isEmpty
+        } catch {
+            return true
+        }
     }
     
     private func saveAllParameters(_ parameters: [Param.FloatParam]) {

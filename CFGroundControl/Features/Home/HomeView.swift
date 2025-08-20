@@ -384,20 +384,39 @@ struct HomeView: View {
                     .disabled(viewModel.isLoadingParameters)
                 }
 
-                
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 80)), count: 3), spacing: 16) {
-                    ForEach(viewModel.telemetryData.floatParams, id: \.name) { param in
-                        ParamaterRowView(
-                            name: param.name,
-                            value: param.value,
-                            refreshTrigger: viewModel.parametersRefreshTrigger,
-                            onValueChanged: { paramName, newValue in
-                                viewModel.updateParameter(name: paramName, value: newValue)
-                            }
-                        )
+                if (viewModel.telemetryData.floatParams.isEmpty) {
+                    Text("Paramter list empty")
+                        .font(.cfFont(.regular, .bodySmall))
+                        .foregroundColor(Color.cfColor(.jetBlack))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 150)
+                        .background(Color.cfColor(.black100))
+                        .cornerRadius(16)
+                } else {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 80)), count: 3), spacing: 16) {
+                        ForEach(viewModel.telemetryData.floatParams, id: \.name) { param in
+                            ParamaterRowView(
+                                name: param.name,
+                                value: param.value,
+                                refreshTrigger: viewModel.parametersRefreshTrigger,
+                                onValueChanged: { paramName, newValue in
+                                    viewModel.updateParameter(name: paramName, value: newValue)
+                                }
+                            )
+                        }
+                    }
+                    .id(viewModel.parametersRefreshTrigger)
+                    
+                    ModernButtonView(
+                        title: "Last Session Parameters",
+                        icon: "",
+                        color: Color.cfColor(.darkYellow),
+                        isEnabled: !viewModel.isSessionEmpty
+                    ) {
+                        appUtility.addImpactFeedback()
+                        viewModel.updateParametersFromLastSession()
                     }
                 }
-                .id(viewModel.parametersRefreshTrigger)
             }
         }
     }
@@ -406,13 +425,13 @@ struct HomeView: View {
     private var takeoffAndLandView: some View {
         ModernCardView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Auto Throttle Value")
+                Text("Throttle Settings")
                     .font(.cfFont(.bold, .title))
                     .foregroundColor(Color.cfColor(.jetBlack))
                 
                 HStack(spacing: 8) {
                     ParameterFieldView(
-                        title: "",
+                        title: "Max Auto Throttle",
                         value: $viewModel.maxAutoThrottleValue,
                         validator: ParameterFieldView.Validator.floatValidator(min: 0.0, max: 1.0),
                         onSubmit: { value in
@@ -420,6 +439,17 @@ struct HomeView: View {
                         }
                     )
                     
+                    ParameterFieldView(
+                        title: "Max Manual Throttle",
+                        value: $viewModel.maxManualThrottleValue,
+                        validator: ParameterFieldView.Validator.floatValidator(min: 0.0, max: 1.0),
+                        onSubmit: { value in
+                            viewModel.updateMaxManualThrottle(value)
+                        }
+                    )
+                }
+                
+                HStack(spacing: 8) {
                     ModernButtonView(
                         title: "Takeoff",
                         icon: "",

@@ -24,6 +24,7 @@ struct ModernButtonView: View {
                     .font(.cfFont(.semiBold, .bodySmall))
             }
             .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .padding(.horizontal, 16)
             .background(isEnabled ? color : Color.cfColor(.black200))

@@ -27,7 +27,7 @@ final class SessionListViewModel: ObservableObject {
         
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: sessionsURL.path) else { return }
         
-        for filesName in files {
+        for filesName in files.sortedBySessionTimestamp() {
             let sessionURL = sessionsURL.appendingPathComponent(filesName)
             sessionList.append(SessionFolderData(url: sessionURL, name: filesName))
         }

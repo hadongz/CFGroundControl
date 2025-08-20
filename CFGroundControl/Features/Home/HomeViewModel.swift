@@ -81,9 +81,14 @@ final class HomeViewModel: ObservableObject {
     
     @Published var isRecordingSession: Bool = false
     @Published var maxAutoThrottleValue: String = ""
+    @Published var maxManualThrottleValue: String = ""
     
     @Published var takeoffActivated: Bool = false
     @Published var landActivated: Bool = false
+    
+    var isSessionEmpty: Bool {
+        return sessionRecorder.isSessionEmpty()
+    }
     
     var currentContrroller: GCController?
     private var connectingDrone: Bool = false
@@ -96,7 +101,8 @@ final class HomeViewModel: ObservableObject {
     
     private let sessionRecorder = StreamingSessionRecorder()
     
-    private var maxAutoThrottle: Float = 0.30
+    private var maxAutoThrottle: Float = 0.35
+    private var maxManualThrottle: Float = 0.5
     
     deinit {
         disconnectMAVLink()
@@ -104,6 +110,7 @@ final class HomeViewModel: ObservableObject {
     
     init() {
         maxAutoThrottleValue = String(maxAutoThrottle)
+        maxManualThrottleValue = String(maxManualThrottle)
     }
     
     func connectToMAVLink() {
@@ -267,6 +274,24 @@ final class HomeViewModel: ObservableObject {
         }
     }
     
+    func updateMaxManualThrottle(_ value: String) {
+        if let value = Float(value), abs(value) >= 0.0 && abs(value) <= 1.0 {
+            maxManualThrottle = value
+        } else {
+            maxManualThrottleValue = String(maxManualThrottle)
+        }
+    }
+    
+    func updateParametersFromLastSession() {
+        let floatParams = sessionRecorder.getLastParametersData()
+        
+        for param in floatParams {
+            updateParameter(name: param.name, value: param.value)
+        }
+        
+        getAllParameters()
+    }
+    
     private func resetStickValue() {
         leftStickY = 0.0
         leftStickX = 0.0
@@ -290,7 +315,7 @@ final class HomeViewModel: ObservableObject {
     private func setupInputControllers(_ controller: GCController) {
         guard let gamepad = controller.extendedGamepad else { return }
         
-        let deadband: Float = 0.25
+        let deadband: Float = 0.10
         
         gamepad.leftThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
             guard let self else { return }
@@ -356,7 +381,7 @@ final class HomeViewModel: ObservableObject {
     
     private func applyDeadband(_ value: Float, deadband: Float) -> Float {
         if abs(value) < deadband { return 0.0 }
-        let sign = value > 0 ? Float(1.0) : Float(-1.0)
+        let sign = value > 0 ? Float(maxManualThrottle) : Float(-maxManualThrottle)
         let scaledValue = (abs(value) - deadband) / (1.0 - deadband)
         return sign * scaledValue
     }
@@ -391,7 +416,7 @@ final class HomeViewModel: ObservableObject {
         guard let drone else { return }
         
         autoThrottleTimer = Observable<Int>
-            .interval(.milliseconds(250), scheduler: MavScheduler)
+            .interval(.milliseconds(80), scheduler: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] _ in
                 guard let self, telemetryData.isArmed else { return }
@@ -405,7 +430,7 @@ final class HomeViewModel: ObservableObject {
                 }
                 
                 if landActivated && abs(rightStickY) >= 0.0 {
-                    rightStickY -= 0.01
+                    rightStickY -= 0.001
                 }
             })
         
@@ -492,6 +517,10 @@ final class HomeViewModel: ObservableObject {
                 )
                 
                 telemetryData.altitudeData.append(data)
+                
+                if (isRecordingSession) {
+                    sessionRecorder.writeAltitude(absoulte: data.absoluteAltitude, relative: data.relativeAltitude)
+                }
                 
                 while telemetryData.altitudeData.count > 25 {
                     telemetryData.altitudeData.removeFirst()
@@ -629,9 +658,7 @@ final class HomeViewModel: ObservableObject {
                     if isRecordingSession {
                         sessionRecorder.writeControlLoopTime(
                             avgFreq: targetValues[0],
-                            currentFreq: targetValues[1],
-                            minFreq: targetValues[2],
-                            maxFreq: targetValues[3]
+                            currentFreq: targetValues[1]
                         )
                     }
                     
