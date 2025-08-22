@@ -50,25 +50,26 @@ struct AltitudeData: Identifiable {
 
 struct TelemetryData {
     var isArmed = false
-    var attitudeData: [EulerAngleData] = []
-    var statusText: [String] = []
+    var attitudeData: CircularBuffer<EulerAngleData> = CircularBuffer(capacity: 25)
+    var statusText: CircularBuffer<String> = CircularBuffer(capacity: 50)
+    var motorData: CircularBuffer<MotorData> = CircularBuffer(capacity: 25)
+    var throttleData: CircularBuffer<ThrottleData> = CircularBuffer(capacity: 25)
+    var pidData: CircularBuffer<EulerAngleData> = CircularBuffer(capacity: 25)
+    var targetAttitudeData: CircularBuffer<EulerAngleData> = CircularBuffer(capacity: 25)
+    var controlLoopTimeData: CircularBuffer<ControlLoopTimeData> = CircularBuffer(capacity: 25)
+    var altitudeData: CircularBuffer<AltitudeData> = CircularBuffer(capacity: 25)
+    
     var floatParams: [Param.FloatParam] = []
-    var motorData: [MotorData] = []
-    var throttleData: [ThrottleData] = []
-    var pidData: [EulerAngleData] = []
-    var targetAttitudeData: [EulerAngleData] = []
-    var controlLoopTimeData: [ControlLoopTimeData] = []
-    var altitudeData: [AltitudeData] = []
 }
 
 final class HomeViewModel: ObservableObject {
     
     @Published var isStickConnected: Bool = false
     
-    @Published var leftStickX: Float = 0.0    // Roll
-    @Published var leftStickY: Float = 0.0    // Pitch
-    @Published var rightStickX: Float = 0.0   // Yaw
-    @Published var rightStickY: Float = 0.0   // Throttle
+    @Published var rollInput: Float = 0.0
+    @Published var pitchInput: Float = 0.0
+    @Published var yawInput: Float = 0.0
+    @Published var throttleInput: Float = 0.0
     
     @Published var isMAVLinkConnected = false
     @Published var connectionStatus = "Disconnected"
@@ -85,6 +86,7 @@ final class HomeViewModel: ObservableObject {
     
     @Published var takeoffActivated: Bool = false
     @Published var landActivated: Bool = false
+    @Published var stickyThrottle: Bool = false
     
     var isSessionEmpty: Bool {
         return sessionRecorder.isSessionEmpty()
@@ -292,11 +294,15 @@ final class HomeViewModel: ObservableObject {
         getAllParameters()
     }
     
+    func updateThrottleInputStyle() {
+        stickyThrottle.toggle()
+    }
+    
     private func resetStickValue() {
-        leftStickY = 0.0
-        leftStickX = 0.0
-        rightStickX = 0.0
-        rightStickY = 0.0
+        pitchInput = 0.0
+        rollInput = 0.0
+        yawInput = 0.0
+        throttleInput = 0.0
     }
     
     private func resetTelemetryData() {
@@ -319,21 +325,29 @@ final class HomeViewModel: ObservableObject {
         
         gamepad.leftThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
             guard let self else { return }
-            self.leftStickX = applyDeadband(xValue, deadband: deadband)
-            self.leftStickY = applyDeadband(yValue, deadband: deadband)
+            self.rollInput = applyDeadband(xValue, deadband: deadband)
+            self.pitchInput = applyDeadband(yValue, deadband: deadband)
         }
         
         gamepad.rightThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
             guard let self else { return }
-            self.rightStickX = applyDeadband(xValue, deadband: deadband)
-            if takeoffActivated && abs(yValue) > 0.0 {
+            if takeoffActivated {
                 takeoffActivated = false
                 landActivated = false
-                self.rightStickY = applyDeadband(yValue, deadband: deadband)
-            } else {
-                self.rightStickY = applyDeadband(yValue, deadband: deadband)
             }
             
+            let updatedValue = applyDeadband(yValue, deadband: deadband)
+            
+            if stickyThrottle {
+                if updatedValue > 0.0 {
+                    throttleInput = min(maxManualThrottle, throttleInput + (updatedValue * 0.03))
+                } else {
+                    throttleInput = max(throttleInput + (updatedValue * 0.03), 0)
+                }
+            } else {
+                guard updatedValue >= 0.0 else { return }
+                throttleInput = updatedValue
+            }
         }
         
         gamepad.buttonA.pressedChangedHandler = { [weak self] (input, value, isPressed) in
@@ -425,12 +439,12 @@ final class HomeViewModel: ObservableObject {
                     takeoffActivated = false
                 }
                 
-                if takeoffActivated && abs(rightStickY) <= maxAutoThrottle {
-                    rightStickY += 0.01
+                if takeoffActivated && abs(throttleInput) <= maxAutoThrottle {
+                    throttleInput += 0.01
                 }
                 
-                if landActivated && abs(rightStickY) >= 0.0 {
-                    rightStickY -= 0.001
+                if landActivated && abs(throttleInput) >= 0.0 {
+                    throttleInput -= 0.001
                 }
             })
         
@@ -440,10 +454,10 @@ final class HomeViewModel: ObservableObject {
                 guard let self, telemetryData.isArmed else { return }
                 _ = drone.manualControl
                     .setManualControlInput(
-                        x: leftStickY,
-                        y: leftStickX,
-                        z: rightStickX,
-                        r: rightStickY
+                        x: pitchInput,
+                        y: rollInput,
+                        z: yawInput,
+                        r: throttleInput
                     )
                     .subscribe()
                     .dispose()
@@ -497,10 +511,6 @@ final class HomeViewModel: ObservableObject {
                         yaw: attitudeEuler.yawDeg
                     )
                 }
-                
-                while telemetryData.attitudeData.count > 25 {
-                    telemetryData.attitudeData.removeFirst()
-                }
             })
             .disposed(by: disposeBag)
         
@@ -522,9 +532,6 @@ final class HomeViewModel: ObservableObject {
                     sessionRecorder.writeAltitude(absoulte: data.absoluteAltitude, relative: data.relativeAltitude)
                 }
                 
-                while telemetryData.altitudeData.count > 25 {
-                    telemetryData.altitudeData.removeFirst()
-                }
             })
             .disposed(by: disposeBag)
         
@@ -567,10 +574,6 @@ final class HomeViewModel: ObservableObject {
                                 m4: data.motor4
                             )
                         }
-                        
-                        while telemetryData.motorData.count > 50 {
-                            telemetryData.motorData.removeFirst()
-                        }
                     }
                     
                     let pidValues = debugValues[1]
@@ -590,10 +593,6 @@ final class HomeViewModel: ObservableObject {
                         if isRecordingSession {
                             sessionRecorder.writePID(roll: pidValues[0], pitch: pidValues[1], yaw: pidValues[2])
                         }
-                        
-                        while telemetryData.pidData.count > 50 {
-                            telemetryData.pidData.removeFirst()
-                        }
                     }
                     
                     if let throttleValue = Float(debugValues[2]) {
@@ -606,10 +605,6 @@ final class HomeViewModel: ObservableObject {
                         
                         if isRecordingSession {
                             sessionRecorder.writeThrottle(value: throttleValue)
-                        }
-                        
-                        while telemetryData.throttleData.count > 25 {
-                            telemetryData.throttleData.removeFirst()
                         }
                     }
                     
@@ -633,11 +628,6 @@ final class HomeViewModel: ObservableObject {
                     if isRecordingSession {
                         sessionRecorder.writeTargetAttitude(roll: targetValues[0], pitch: targetValues[1], yaw: targetValues[2])
                     }
-                    
-                    while telemetryData.targetAttitudeData.count > 10 {
-                        telemetryData.targetAttitudeData.removeFirst()
-                    }
-                    
                 } else if statusText.hasPrefix("LOOPTIME:") {
                     let targetValues = statusText
                         .replacingOccurrences(of: "LOOPTIME:", with: "")
@@ -661,16 +651,8 @@ final class HomeViewModel: ObservableObject {
                             currentFreq: targetValues[1]
                         )
                     }
-                    
-                    while telemetryData.controlLoopTimeData.count > 25 {
-                        telemetryData.controlLoopTimeData.removeFirst()
-                    }
-                    
                 } else {
                     telemetryData.statusText.append(statusText)
-                    while telemetryData.statusText.count > 100 {
-                        telemetryData.statusText.removeFirst()
-                    }
                 }
             })
             .disposed(by: disposeBag)

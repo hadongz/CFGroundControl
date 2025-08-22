@@ -13,13 +13,13 @@ struct AttitudeChartView: View {
     @Binding var telemetryData: TelemetryData
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        LazyVStack(alignment: .leading, spacing: 6) {
             Text("Attitude")
                 .font(.cfFont(.semiBold, .bodyLarge))
                 .foregroundStyle(Color.cfColor(.black300))
             
             Chart {
-                ForEach(telemetryData.attitudeData) { data in
+                ForEach(telemetryData.attitudeData.elements) { data in
                     LineMark(
                         x: .value("Time", data.timestamp),
                         y: .value("Degrees", min(45, max(-45, data.roll))),
@@ -27,9 +27,7 @@ struct AttitudeChartView: View {
                     )
                     .foregroundStyle(.red)
                     .interpolationMethod(.catmullRom)
-                }
-                
-                ForEach(telemetryData.attitudeData) { data in
+                    
                     LineMark(
                         x: .value("Time", data.timestamp),
                         y: .value("Degrees", min(45, max(-45, data.pitch))),
@@ -37,9 +35,7 @@ struct AttitudeChartView: View {
                     )
                     .foregroundStyle(.green)
                     .interpolationMethod(.catmullRom)
-                }
-                
-                ForEach(telemetryData.attitudeData) { data in
+                    
                     LineMark(
                         x: .value("Time", data.timestamp),
                         y: .value("Degrees", min(45, max(-45, data.yaw))),

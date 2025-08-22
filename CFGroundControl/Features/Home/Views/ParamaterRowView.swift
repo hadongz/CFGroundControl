@@ -68,7 +68,7 @@ struct ParamaterRowView: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        LazyVStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(name)
                     .foregroundStyle(Color.cfColor(.jetBlack))

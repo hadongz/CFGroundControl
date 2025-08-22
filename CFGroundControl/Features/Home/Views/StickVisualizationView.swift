@@ -13,7 +13,7 @@ struct StickVisualizationView: View {
     let y: Float
     
     var body: some View {
-        VStack(spacing: 8) {
+        LazyVStack(spacing: 8) {
             Text(title)
                 .font(.cfFont(.regular, .small))
                 .foregroundColor(Color.cfColor(.black300))

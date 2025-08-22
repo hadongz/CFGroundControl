@@ -15,12 +15,51 @@ struct SessionFolderData: Identifiable {
     let name: String
 }
 
+struct SessionDateSection: Identifiable {
+    let date: Date
+    let sessions: [SessionFolderData]
+    
+    var displayDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+    
+    var isToday: Bool {
+        Calendar.current.isDateInToday(date)
+    }
+    
+    var isYesterday: Bool {
+        Calendar.current.isDateInYesterday(date)
+    }
+    
+    var sectionTitle: String {
+        if isToday {
+            return "Today"
+        } else if isYesterday {
+            return "Yesterday"
+        } else {
+            return displayDate
+        }
+    }
+    
+    var id: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+}
+
 final class SessionListViewModel: ObservableObject {
     
     @Published var sessionList: [SessionFolderData] = []
+    @Published var sessionSections: [SessionDateSection] = []
     
     func loadSessionList() {
         sessionList.removeAll()
+        sessionSections.removeAll()
+        
         guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         
         let sessionsURL = documentsDir.appendingPathComponent("DroneSessions")
@@ -31,6 +70,8 @@ final class SessionListViewModel: ObservableObject {
             let sessionURL = sessionsURL.appendingPathComponent(filesName)
             sessionList.append(SessionFolderData(url: sessionURL, name: filesName))
         }
+        
+        groupSessionsByDate()
     }
     
     func deleteSession(_ session: SessionFolderData) {
@@ -87,4 +128,25 @@ final class SessionListViewModel: ObservableObject {
         }
     }
     
+    private func groupSessionsByDate() {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        
+        let calendar = Calendar.current
+        
+        // Group sessions by date
+        let groupedSessions = Dictionary(grouping: sessionList) { session -> Date in
+            let timestamp = String(session.name.dropFirst(8))
+            if let date = dateFormatter.date(from: timestamp) {
+                return calendar.startOfDay(for: date)
+            }
+            return Date.distantPast
+        }
+        
+        // Convert to sections and sort by date (most recent first)
+        sessionSections = groupedSessions.compactMap { (date, sessions) -> SessionDateSection? in
+            guard date != Date.distantPast else { return nil }
+            return SessionDateSection(date: date, sessions: sessions)
+        }.sorted { $0.date > $1.date }
+    }
 }

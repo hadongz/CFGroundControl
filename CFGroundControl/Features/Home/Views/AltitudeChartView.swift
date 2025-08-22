@@ -13,23 +13,23 @@ struct AltitudeChartView: View {
     @Binding var telemetryData: TelemetryData
     
     private var absoluteAltitude: String {
-        guard let lastData = telemetryData.altitudeData.last else { return "0.0" }
+        guard let lastData = telemetryData.altitudeData.elements.last else { return "0.0" }
         return String(format: "%.1f", lastData.absoluteAltitude)
     }
     
     private var relativeAltitude: String {
-        guard let lastData = telemetryData.altitudeData.last else { return "0.0" }
+        guard let lastData = telemetryData.altitudeData.elements.last else { return "0.0" }
         return String(format: "%.1f", lastData.relativeAltitude)
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        LazyVStack(alignment: .leading, spacing: 6) {
             Text("Altitude")
                 .font(.cfFont(.semiBold, .bodyLarge))
                 .foregroundStyle(Color.cfColor(.black300))
             
             Chart {
-                ForEach(telemetryData.altitudeData) { data in
+                ForEach(telemetryData.altitudeData.elements) { data in
                     LineMark(
                         x: .value("Time", data.timestamp),
                         y: .value("Degrees", min(5, max(-5, data.relativeAltitude))),

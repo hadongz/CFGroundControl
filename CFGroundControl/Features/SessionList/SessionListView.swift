@@ -39,46 +39,7 @@ struct SessionListView: View {
                     .padding(20)
                     
                 } else {
-                    LazyVStack(spacing: 8) {
-                        ForEach(viewModel.sessionList, id: \.id) { session in
-                            HStack(spacing: 10) {
-                                Text(session.name)
-                                    .font(.cfFont(.regular, .bodySmall))
-                                    .foregroundStyle(Color.cfColor(.black300))
-                                
-                                Spacer()
-                                
-                                Button {
-                                    guard let zipURL = viewModel.zipSession(session) else { return }
-                                    let shareableFile = ShareableFile(url: zipURL, title: session.name)
-                                    appUtility.share(items: [shareableFile]) {
-                                        try? FileManager.default.removeItem(at: zipURL)
-                                    }
-                                } label: {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundColor(.blue)
-                                }
-                                
-                                Button {
-                                    sessionToDelete = session
-                                    showDeleteAlert = true
-                                } label: {
-                                    Image(systemName: "trash.fill")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundColor(.red)
-                                }
-
-                            }
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 14)
-                            .frame(height: 40)
-                            .background(Color.cfColor(.white))
-                            .cornerRadius(8)
-                            .subtleShadow()
-                        }
-                    }
-                    .padding(20)
+                    sectionsListView
                 }
             }
             .background(
@@ -124,5 +85,46 @@ struct SessionListView: View {
         }
 
     }
+    
+    private var sectionsListView: some View {
+        LazyVStack(spacing: 16) {
+            ForEach(Array(viewModel.sessionSections.enumerated()), id: \.offset) { index, section in
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text(section.sectionTitle)
+                            .font(.cfFont(.semiBold, .bodyLarge))
+                            .foregroundStyle(Color.cfColor(.black500))
+                        
+                        Spacer()
+                        
+                        Text("\(section.sessions.count) session\(section.sessions.count == 1 ? "" : "s")")
+                            .font(.cfFont(.regular, .bodySmall))
+                            .foregroundStyle(Color.cfColor(.black300))
+                    }
+                    .padding(.horizontal, 20)
+                    
+                    LazyVStack(spacing: 8) {
+                        ForEach(section.sessions, id: \.id) { session in
+                            SessionRowView(
+                                session: session,
+                                onShare: { session in
+                                    guard let zipURL = viewModel.zipSession(session) else { return }
+                                    let shareableFile = ShareableFile(url: zipURL, title: session.name)
+                                    appUtility.share(items: [shareableFile]) {
+                                        try? FileManager.default.removeItem(at: zipURL)
+                                    }
+                                },
+                                onDelete: { session in
+                                    sessionToDelete = session
+                                    showDeleteAlert = true
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+            }
+        }
+        .padding(.vertical, 20)
+    }
 }
-

@@ -15,7 +15,7 @@ struct ThrottleChartView: View {
     var body: some View {
         AccordionView(title: "Throttle Demand") {
             Chart {
-                ForEach(telemetryData.throttleData) { data in
+                ForEach(telemetryData.throttleData.elements) { data in
                     AreaMark(
                         x: .value("Time", data.timestamp),
                         y: .value("Throttle", data.value)

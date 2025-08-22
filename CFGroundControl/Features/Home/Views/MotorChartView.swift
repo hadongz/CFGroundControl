@@ -13,7 +13,7 @@ struct MotorChartView: View {
     @Binding var telemetryData: TelemetryData
     
     private var latestMotorData: MotorData? {
-        telemetryData.motorData.last
+        telemetryData.motorData.elements.last
     }
     
     private var averagePWM: Int {
@@ -27,7 +27,7 @@ struct MotorChartView: View {
     
     var body: some View {
         AccordionView(title: "Motor PWM Values") {
-            VStack(spacing: 8) {
+            LazyVStack(spacing: 8) {
                 HStack(spacing: 12) {
                     MotorIndicator(
                         label: "M1",

@@ -13,16 +13,16 @@ struct ControlTimeLoopChartView: View {
     @Binding var telemetryData: TelemetryData
     
     var lastData: ControlLoopTimeData? {
-        return telemetryData.controlLoopTimeData.last
+        return telemetryData.controlLoopTimeData.elements.last
     }
     
     var firstData: ControlLoopTimeData? {
-        return telemetryData.controlLoopTimeData.first
+        return telemetryData.controlLoopTimeData.elements.first
     }
     
     var body: some View {
         AccordionView(title: "Control Time Loop (Hz)") {
-            VStack(spacing: 8) {
+            LazyVStack(spacing: 8) {
                 HStack(spacing: 16) {
                     if let lastData {
                         VStack(spacing: 2) {
@@ -59,14 +59,14 @@ struct ControlTimeLoopChartView: View {
                             xStart: .value("Start", firstData.timestamp),
                             xEnd: .value("End", lastData.timestamp),
                             yStart: .value("Y Start", 0),
-                            yEnd: .value("Y End", 750)
+                            yEnd: .value("Y End", 500)
                         )
                         .foregroundStyle(.red.opacity(0.15))
                         
                         RectangleMark(
                             xStart: .value("Start", firstData.timestamp),
                             xEnd: .value("End", lastData.timestamp),
-                            yStart: .value("Y Start", 750),
+                            yStart: .value("Y Start", 500),
                             yEnd: .value("Y End", 1000)
                         )
                         .foregroundStyle(.yellow.opacity(0.15))
@@ -75,11 +75,11 @@ struct ControlTimeLoopChartView: View {
                             xStart: .value("Start", firstData.timestamp),
                             xEnd: .value("End", lastData.timestamp),
                             yStart: .value("Y Start", 1000),
-                            yEnd: .value("Y End", 2000)
+                            yEnd: .value("Y End", 1500)
                         )
                         .foregroundStyle(.green.opacity(0.15))
                         
-                        ForEach(telemetryData.controlLoopTimeData) { data in
+                        ForEach(telemetryData.controlLoopTimeData.elements) { data in
                             LineMark(
                                 x: .value("Time", data.timestamp),
                                 y: .value("Current Freq Hz", data.currentLoopTime)
@@ -88,7 +88,7 @@ struct ControlTimeLoopChartView: View {
                             .lineStyle(StrokeStyle(lineWidth: 3))
                         }
                     }
-                    .frame(height: 250)
+                    .frame(height: 150)
                     .chartYScale(domain: 150...1500)
                     .padding(.vertical, 10)
                     .clipped()

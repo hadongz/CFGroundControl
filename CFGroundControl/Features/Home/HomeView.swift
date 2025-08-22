@@ -255,30 +255,30 @@ struct HomeView: View {
                 HStack(spacing: 20) {
                     StickVisualizationView(
                         title: "Roll/Pitch",
-                        x: viewModel.leftStickX,
-                        y: viewModel.leftStickY
+                        x: viewModel.rollInput,
+                        y: viewModel.pitchInput
                     )
                     
                     Spacer()
                     
                     StickVisualizationView(
                         title: "Yaw/Throttle",
-                        x: viewModel.rightStickX,
-                        y: viewModel.rightStickY
+                        x: viewModel.yawInput,
+                        y: viewModel.throttleInput
                     )
                 }
                 
                 VStack(spacing: 8) {
                     HStack {
-                        InputValueView(label: "Roll", value: viewModel.leftStickX, alignment: .leading)
+                        InputValueView(label: "Roll", value: viewModel.rollInput, alignment: .leading)
                         Spacer()
-                        InputValueView(label: "Pitch", value: viewModel.leftStickY, alignment: .leading)
+                        InputValueView(label: "Pitch", value: viewModel.pitchInput, alignment: .leading)
                     }
                     
                     HStack {
-                        InputValueView(label: "Yaw", value: viewModel.rightStickX, alignment: .trailing)
+                        InputValueView(label: "Yaw", value: viewModel.yawInput, alignment: .trailing)
                         Spacer()
-                        InputValueView(label: "Throttle", value: viewModel.rightStickY, alignment: .trailing)
+                        InputValueView(label: "Throttle", value: viewModel.throttleInput, alignment: .trailing)
                     }
                 }
                 .padding(.top, 8)
@@ -298,7 +298,7 @@ struct HomeView: View {
                     Text("Recent Messages:")
                         .font(.cfFont(.regular, .bodySmall))
                         .foregroundColor(.cfColor(.black300))
-                    if viewModel.telemetryData.statusText.isEmpty {
+                    if viewModel.telemetryData.statusText.elements.isEmpty {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color.cfColor(.black100).opacity(0.3))
                             .frame(height: 120)
@@ -310,8 +310,8 @@ struct HomeView: View {
                     } else {
                         ScrollView(.vertical, showsIndicators: true) {
                             LazyVStack(alignment: .leading, spacing: 4) {
-                                ForEach(viewModel.telemetryData.statusText.indices.reversed(), id: \.self) { index in
-                                    Text(viewModel.telemetryData.statusText[index])
+                                ForEach(viewModel.telemetryData.statusText.elements.indices.reversed(), id: \.self) { index in
+                                    Text(viewModel.telemetryData.statusText.elements[index])
                                         .font(.cfFont(.regular, .small))
                                         .foregroundColor(.cfColor(.black300))
                                 }
@@ -469,6 +469,17 @@ struct HomeView: View {
                         viewModel.takeoffActivated = false
                         viewModel.landActivated = true
                     }
+                    
+
+                }
+                
+                ModernButtonView(
+                    title: viewModel.stickyThrottle ? "Free Manual Throttle Mode" : "Sticky Manual Throttle Mode",
+                    icon: "",
+                    color: .blue,
+                    isEnabled: true
+                ) {
+                    viewModel.updateThrottleInputStyle()
                 }
             }
         }

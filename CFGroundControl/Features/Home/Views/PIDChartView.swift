@@ -13,7 +13,7 @@ struct PIDChartView: View {
     @Binding var telemetryData: TelemetryData
     
     private var latestPIDData: EulerAngleData? {
-        telemetryData.pidData.last
+        telemetryData.pidData.elements.last
     }
     
     private func toDegrees(_ radians: Double) -> Double {
@@ -22,7 +22,7 @@ struct PIDChartView: View {
     
     var body: some View {
         AccordionView(title: "PID Output") {
-            VStack(spacing: 8) {
+            LazyVStack(spacing: 8) {
                 PIDAxisIndicator(
                     axis: "Roll",
                     value: latestPIDData?.roll ?? 0,
@@ -47,7 +47,7 @@ struct PIDChartView: View {
                 Spacer(minLength: 16)
                 
                 Chart {
-                    ForEach(telemetryData.pidData) { data in
+                    ForEach(telemetryData.pidData.elements) { data in
                         LineMark(
                             x: .value("Time", data.timestamp),
                             y: .value("Output", data.roll),
