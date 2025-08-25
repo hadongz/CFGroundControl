@@ -22,7 +22,7 @@ struct ControlTimeLoopChartView: View {
     
     var body: some View {
         AccordionView(title: "Control Time Loop (Hz)") {
-            LazyVStack(spacing: 8) {
+            VStack(spacing: 8) {
                 HStack(spacing: 16) {
                     if let lastData {
                         VStack(spacing: 2) {

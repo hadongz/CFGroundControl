@@ -29,16 +29,16 @@ struct ThrottleChartView: View {
                     .foregroundStyle(.purple)
                 }
                 
-                RuleMark(y: .value("Hover", 0.5)) // Approximate hover throttle
+                RuleMark(y: .value("Hover", 0.5))
                     .foregroundStyle(.orange)
                     .lineStyle(StrokeStyle(dash: [5]))
             }
-            .frame(height: 100) // Smaller since it's single value
+            .frame(height: 100)
             .chartYScale(domain: 0...1)
             .padding(.vertical, 10)
             .clipped()
             .chartYAxis {
-                AxisMarks(position: .leading, values: .stride(by: 10)) { _ in
+                AxisMarks(position: .leading, values: .stride(by: 0.25)) { _ in
                     AxisGridLine()
                         .foregroundStyle(Color.cfColor(.black100))
                     AxisValueLabel()

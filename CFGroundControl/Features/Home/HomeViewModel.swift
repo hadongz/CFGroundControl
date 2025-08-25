@@ -98,13 +98,11 @@ final class HomeViewModel: ObservableObject {
     private var discoveredDroneIP: String?
     
     private let disposeBag = DisposeBag()
-    private var controlTimer: Disposable?
-    private var autoThrottleTimer: Disposable?
     
     private let sessionRecorder = StreamingSessionRecorder()
     
-    private var maxAutoThrottle: Float = 0.35
-    private var maxManualThrottle: Float = 0.5
+    private var maxAutoThrottle: Float = 0.1
+    private var maxManualThrottle: Float = 0.75
     
     deinit {
         disconnectMAVLink()
@@ -133,16 +131,17 @@ final class HomeViewModel: ObservableObject {
                     self?.connectingDrone = false
                 },
                 onCompleted: { [weak self] in
-                    debugPrint("CONNECT COMPLETED")
+                    debugPrint("Connected to Drone")
                     self?.drone = drone
                     self?.subscribeMAVLinkConnection()
                     self?.connectingDrone = false
                 }
             )
             .andThen(Observable<Any>.never())
-            .subscribe(onDisposed: {
+            .subscribe(onDisposed: { [weak self] in
+                guard let self else { return }
                 print("Connection disposed")
-                drone.disconnect()
+                disconnectMAVLink()
             })
             .disposed(by: disposeBag)
     }
@@ -158,22 +157,14 @@ final class HomeViewModel: ObservableObject {
     func armDrone() {
         guard let drone = drone, isMAVLinkConnected else { return }
         
-        setupManualControlMAVLink()
-        getAllParameters()
+        resetStickValue()
+        resetTelemetryData()
+        resetTakeoffLandState()
         
         drone.action.arm()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe(
-                onCompleted: { [weak self] in
-                    self?.resetStickValue()
-                    self?.resetTelemetryData()
-                    self?.resetTakeoffLandState()
-                },
-                onError: { error in
-                    print("Failed to arm drone: \(error)")
-                }
-            )
+            .subscribe()
             .disposed(by: disposeBag)
     }
     
@@ -181,15 +172,12 @@ final class HomeViewModel: ObservableObject {
         guard let drone = drone, isMAVLinkConnected else { return }
         
         resetStickValue()
+        saveSession()
         
         drone.action.kill()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe({ [weak self] _ in
-                self?.resetStickValue()
-                self?.saveSession()
-                self?.disposeManualControlMAVLink()
-            })
+            .subscribe()
             .disposed(by: disposeBag)
     }
     
@@ -248,7 +236,6 @@ final class HomeViewModel: ObservableObject {
         resetStickValue()
         resetTakeoffLandState()
         resetTelemetryData()
-        disposeManualControlMAVLink()
         drone?.disconnect()
         drone = nil
     }
@@ -405,7 +392,7 @@ final class HomeViewModel: ObservableObject {
         drone.core.connectionState
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { [weak self] connectionState in
+            .do(onNext: { [weak self] connectionState in
                 guard let self else { return }
                 let lastConnectionState = isMAVLinkConnected
                 isMAVLinkConnected = connectionState.isConnected
@@ -419,22 +406,32 @@ final class HomeViewModel: ObservableObject {
                 
                 if connectionState.isConnected {
                     startTelemetrySubscriptions()
+                    subscribeManualControl()
                 } else {
                     disconnectMAVLink()
+                }
+            })
+            .delay(.seconds(2), scheduler: MavScheduler)
+            .subscribe(onNext: { [weak self] connectionState in
+                guard let self else { return }
+                if connectionState.isConnected {
+                    getAllParameters()
                 }
             })
             .disposed(by: disposeBag)
     }
     
-    private func setupManualControlMAVLink() {
+    private func subscribeManualControl() {
         guard let drone else { return }
         
-        autoThrottleTimer = Observable<Int>
-            .interval(.milliseconds(80), scheduler: MavScheduler)
-            .observe(on: MainScheduler.instance)
+        Observable<Int>
+            .interval(.milliseconds(100), scheduler: MavScheduler)
+            .filter { [weak self] _ in
+                guard let self else { return false }
+                return telemetryData.isArmed
+            }
             .subscribe(onNext: { [weak self] _ in
-                guard let self, telemetryData.isArmed else { return }
-                
+                guard let self else { return }
                 if takeoffActivated && landActivated {
                     takeoffActivated = false
                 }
@@ -444,31 +441,31 @@ final class HomeViewModel: ObservableObject {
                 }
                 
                 if landActivated && abs(throttleInput) >= 0.0 {
-                    throttleInput -= 0.001
+                    throttleInput -= 0.005
                 }
             })
+            .disposed(by: disposeBag)
         
-        controlTimer = Observable<Int>
-            .interval(.milliseconds(80), scheduler: MavSerialScheduler)
-            .subscribe(onNext: { [weak self] _ in
-                guard let self, telemetryData.isArmed else { return }
-                _ = drone.manualControl
+        Observable<Int>
+            .interval(.milliseconds(100), scheduler: MavSerialScheduler)
+            .filter { [weak self] _ in
+                guard let self else { return false }
+                return telemetryData.isArmed
+            }
+            .flatMap({ [weak self] _ -> Observable<Void> in
+                guard let self else { return .empty() }
+                return drone.manualControl
                     .setManualControlInput(
                         x: pitchInput,
                         y: rollInput,
                         z: yawInput,
                         r: throttleInput
                     )
-                    .subscribe()
-                    .dispose()
+                    .andThen(Observable.just(()))
             })
-    }
-    
-    private func disposeManualControlMAVLink() {
-        controlTimer?.dispose()
-        autoThrottleTimer?.dispose()
-        controlTimer = nil
-        autoThrottleTimer = nil
+            .subscribe()
+            .disposed(by: disposeBag)
+
     }
     
     private func startTelemetrySubscriptions() {

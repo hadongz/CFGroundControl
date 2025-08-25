@@ -17,7 +17,7 @@ struct SessionFolderData: Identifiable {
 
 struct SessionDateSection: Identifiable {
     let date: Date
-    let sessions: [SessionFolderData]
+    var sessions: [SessionFolderData]
     
     var displayDate: String {
         let formatter = DateFormatter()
@@ -53,9 +53,10 @@ struct SessionDateSection: Identifiable {
 
 final class SessionListViewModel: ObservableObject {
     
-    @Published var sessionList: [SessionFolderData] = []
     @Published var sessionSections: [SessionDateSection] = []
     
+    private var sessionList: [SessionFolderData] = []
+
     func loadSessionList() {
         sessionList.removeAll()
         sessionSections.removeAll()
@@ -74,10 +75,10 @@ final class SessionListViewModel: ObservableObject {
         groupSessionsByDate()
     }
     
-    func deleteSession(_ session: SessionFolderData) {
+    func deleteSession(_ session: SessionFolderData, sectionIndex: Int) {
         do {
             try FileManager.default.removeItem(at: session.url)
-            sessionList.removeAll { $0.id == session.id }
+            sessionSections[sectionIndex].sessions.removeAll { $0.id == session.id }
         } catch {
             print("Error deleting session: \(error)")
         }
@@ -134,7 +135,6 @@ final class SessionListViewModel: ObservableObject {
         
         let calendar = Calendar.current
         
-        // Group sessions by date
         let groupedSessions = Dictionary(grouping: sessionList) { session -> Date in
             let timestamp = String(session.name.dropFirst(8))
             if let date = dateFormatter.date(from: timestamp) {
@@ -143,7 +143,6 @@ final class SessionListViewModel: ObservableObject {
             return Date.distantPast
         }
         
-        // Convert to sections and sort by date (most recent first)
         sessionSections = groupedSessions.compactMap { (date, sessions) -> SessionDateSection? in
             guard date != Date.distantPast else { return nil }
             return SessionDateSection(date: date, sessions: sessions)

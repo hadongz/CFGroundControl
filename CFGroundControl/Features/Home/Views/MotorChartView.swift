@@ -27,7 +27,7 @@ struct MotorChartView: View {
     
     var body: some View {
         AccordionView(title: "Motor PWM Values") {
-            LazyVStack(spacing: 8) {
+            VStack(spacing: 8) {
                 HStack(spacing: 12) {
                     MotorIndicator(
                         label: "M1",

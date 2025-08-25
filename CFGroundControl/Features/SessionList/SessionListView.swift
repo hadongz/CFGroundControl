@@ -13,6 +13,7 @@ struct SessionListView: View {
     @StateObject var viewModel: SessionListViewModel
     
     @State private var showDeleteAlert = false
+    @State private var deleteSectionIndex: Int?
     @State private var sessionToDelete: SessionFolderData?
     
     init(viewModel: SessionListViewModel = SessionListViewModel()) {
@@ -22,7 +23,7 @@ struct SessionListView: View {
     var body: some View {
         NavigationBarView(title: "Session List", rightItemView: AnyView(rightNavBarView)) {
             ScrollView {
-                if viewModel.sessionList.isEmpty {
+                if viewModel.sessionSections.isEmpty {
                     Spacer(minLength: 100)
                     
                     VStack(spacing: 10) {
@@ -60,8 +61,8 @@ struct SessionListView: View {
             .alert("Delete Session", isPresented: $showDeleteAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Delete", role: .destructive) {
-                    if let session = sessionToDelete {
-                        viewModel.deleteSession(session)
+                    if let session = sessionToDelete, let sectionIndex = deleteSectionIndex {
+                        viewModel.deleteSession(session, sectionIndex: sectionIndex)
                         sessionToDelete = nil
                     }
                 }
@@ -116,6 +117,7 @@ struct SessionListView: View {
                                 },
                                 onDelete: { session in
                                     sessionToDelete = session
+                                    deleteSectionIndex = index
                                     showDeleteAlert = true
                                 }
                             )

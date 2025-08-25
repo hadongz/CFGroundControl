@@ -22,7 +22,7 @@ struct PIDChartView: View {
     
     var body: some View {
         AccordionView(title: "PID Output") {
-            LazyVStack(spacing: 8) {
+            VStack(spacing: 8) {
                 PIDAxisIndicator(
                     axis: "Roll",
                     value: latestPIDData?.roll ?? 0,

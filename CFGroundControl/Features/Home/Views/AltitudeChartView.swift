@@ -23,7 +23,7 @@ struct AltitudeChartView: View {
     }
     
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("Altitude")
                 .font(.cfFont(.semiBold, .bodyLarge))
                 .foregroundStyle(Color.cfColor(.black300))

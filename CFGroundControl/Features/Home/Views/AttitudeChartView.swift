@@ -13,7 +13,7 @@ struct AttitudeChartView: View {
     @Binding var telemetryData: TelemetryData
     
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("Attitude")
                 .font(.cfFont(.semiBold, .bodyLarge))
                 .foregroundStyle(Color.cfColor(.black300))
