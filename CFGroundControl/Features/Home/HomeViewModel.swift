@@ -84,8 +84,6 @@ final class HomeViewModel: ObservableObject {
     @Published var maxAutoThrottleValue: String = ""
     @Published var maxManualThrottleValue: String = ""
     
-    @Published var takeoffActivated: Bool = false
-    @Published var landActivated: Bool = false
     @Published var stickyThrottle: Bool = false
     
     var isSessionEmpty: Bool {
@@ -101,7 +99,6 @@ final class HomeViewModel: ObservableObject {
     
     private let sessionRecorder = StreamingSessionRecorder()
     
-    private var maxAutoThrottle: Float = 0.1
     private var maxManualThrottle: Float = 0.75
     
     deinit {
@@ -109,7 +106,6 @@ final class HomeViewModel: ObservableObject {
     }
     
     init() {
-        maxAutoThrottleValue = String(maxAutoThrottle)
         maxManualThrottleValue = String(maxManualThrottle)
     }
     
@@ -159,7 +155,6 @@ final class HomeViewModel: ObservableObject {
         
         resetStickValue()
         resetTelemetryData()
-        resetTakeoffLandState()
         
         drone.action.arm()
             .subscribe(on: MavScheduler)
@@ -234,7 +229,6 @@ final class HomeViewModel: ObservableObject {
         isMAVLinkConnected = false
         connectionStatus = "Disconnected"
         resetStickValue()
-        resetTakeoffLandState()
         resetTelemetryData()
         drone?.disconnect()
         drone = nil
@@ -244,7 +238,6 @@ final class HomeViewModel: ObservableObject {
         isStickConnected = true
         currentContrroller = controller
         resetStickValue()
-        resetTakeoffLandState()
         resetTelemetryData()
         setupInputControllers(controller)
     }
@@ -253,14 +246,6 @@ final class HomeViewModel: ObservableObject {
         isStickConnected = false
         currentContrroller = nil
         resetStickValue()
-    }
-    
-    func updateMaxAutoThrottle(_ value: String) {
-        if let value = Float(value), abs(value) >= 0.0 && abs(value) <= 1.0 {
-            maxAutoThrottle = value
-        } else {
-            maxAutoThrottleValue = String(maxAutoThrottle)
-        }
     }
     
     func updateMaxManualThrottle(_ value: String) {
@@ -300,10 +285,6 @@ final class HomeViewModel: ObservableObject {
         telemetryData.controlLoopTimeData.removeAll()
     }
     
-    private func resetTakeoffLandState() {
-        takeoffActivated = false
-        landActivated = false
-    }
     
     private func setupInputControllers(_ controller: GCController) {
         guard let gamepad = controller.extendedGamepad else { return }
@@ -318,10 +299,6 @@ final class HomeViewModel: ObservableObject {
         
         gamepad.rightThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
             guard let self else { return }
-            if takeoffActivated {
-                takeoffActivated = false
-                landActivated = false
-            }
             
             let updatedValue = applyDeadband(yValue, deadband: deadband)
             
@@ -360,13 +337,6 @@ final class HomeViewModel: ObservableObject {
         
         gamepad.buttonY.pressedChangedHandler = { [weak self] (input, value, isPressed) in
             guard let self, isPressed, telemetryData.isArmed else { return }
-            if takeoffActivated {
-                takeoffActivated = false
-                landActivated = true
-            } else {
-                takeoffActivated = true
-                landActivated = false
-            }
         }
         
         gamepad.buttonMenu.pressedChangedHandler = { [weak self] (input, value, isPressed) in
@@ -389,6 +359,7 @@ final class HomeViewModel: ObservableObject {
     
     private func subscribeMAVLinkConnection() {
         guard let drone else { return }
+        
         drone.core.connectionState
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
@@ -401,7 +372,6 @@ final class HomeViewModel: ObservableObject {
                 if lastConnectionState != isMAVLinkConnected {
                     resetTelemetryData()
                     resetStickValue()
-                    resetTakeoffLandState()
                 }
                 
                 if connectionState.isConnected {
@@ -415,7 +385,9 @@ final class HomeViewModel: ObservableObject {
             .subscribe(onNext: { [weak self] connectionState in
                 guard let self else { return }
                 if connectionState.isConnected {
-                    getAllParameters()
+                    DispatchQueue.main.async {
+                        self.getAllParameters()
+                    }
                 }
             })
             .disposed(by: disposeBag)
@@ -423,28 +395,6 @@ final class HomeViewModel: ObservableObject {
     
     private func subscribeManualControl() {
         guard let drone else { return }
-        
-        Observable<Int>
-            .interval(.milliseconds(100), scheduler: MavScheduler)
-            .filter { [weak self] _ in
-                guard let self else { return false }
-                return telemetryData.isArmed
-            }
-            .subscribe(onNext: { [weak self] _ in
-                guard let self else { return }
-                if takeoffActivated && landActivated {
-                    takeoffActivated = false
-                }
-                
-                if takeoffActivated && abs(throttleInput) <= maxAutoThrottle {
-                    throttleInput += 0.01
-                }
-                
-                if landActivated && abs(throttleInput) >= 0.0 {
-                    throttleInput -= 0.005
-                }
-            })
-            .disposed(by: disposeBag)
         
         Observable<Int>
             .interval(.milliseconds(100), scheduler: MavSerialScheduler)
@@ -462,10 +412,13 @@ final class HomeViewModel: ObservableObject {
                         r: throttleInput
                     )
                     .andThen(Observable.just(()))
+                    .catch { _ in return Observable.just(()) }
             })
-            .subscribe()
+            .retry()
+            .subscribe(onDisposed: {
+                print("Manual Control subscription disposed")
+            })
             .disposed(by: disposeBag)
-
     }
     
     private func startTelemetrySubscriptions() {
@@ -478,7 +431,6 @@ final class HomeViewModel: ObservableObject {
                 guard let self else { return }
                 if telemetryData.isArmed != armed {
                     resetStickValue()
-                    resetTakeoffLandState()
                 }
                 telemetryData.isArmed = armed
             })

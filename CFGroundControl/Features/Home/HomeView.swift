@@ -40,7 +40,7 @@ struct HomeView: View {
                     }
                     
                     if viewModel.isMAVLinkConnected {
-                        takeoffAndLandView
+                        throttleSettingsView
                     }
                     
                     if viewModel.isMAVLinkConnected {
@@ -422,23 +422,15 @@ struct HomeView: View {
     }
     
     // MARK: - Auto Take Off View
-    private var takeoffAndLandView: some View {
+    private var throttleSettingsView: some View {
         ModernCardView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Throttle Settings")
                     .font(.cfFont(.bold, .title))
                     .foregroundColor(Color.cfColor(.jetBlack))
                 
-                HStack(spacing: 8) {
-                    ParameterFieldView(
-                        title: "Max Auto Throttle",
-                        value: $viewModel.maxAutoThrottleValue,
-                        validator: ParameterFieldView.Validator.floatValidator(min: 0.0, max: 1.0),
-                        onSubmit: { value in
-                            viewModel.updateMaxAutoThrottle(value)
-                        }
-                    )
-                    
+                HStack(alignment: .bottom, spacing: 8)
+                {
                     ParameterFieldView(
                         title: "Max Manual Throttle",
                         value: $viewModel.maxManualThrottleValue,
@@ -447,39 +439,15 @@ struct HomeView: View {
                             viewModel.updateMaxManualThrottle(value)
                         }
                     )
-                }
-                
-                HStack(spacing: 8) {
-                    ModernButtonView(
-                        title: "Takeoff",
-                        icon: "",
-                        color: .green,
-                        isEnabled: !viewModel.takeoffActivated && viewModel.telemetryData.isArmed
-                    ) {
-                        viewModel.takeoffActivated = true
-                        viewModel.landActivated = false
-                    }
                     
                     ModernButtonView(
-                        title: "Land",
+                        title: viewModel.stickyThrottle ? "Free Throttle" : "Manual Throttle",
                         icon: "",
-                        color: .cfColor(.darkYellow),
-                        isEnabled: !viewModel.landActivated && viewModel.telemetryData.isArmed
+                        color: .blue,
+                        isEnabled: true
                     ) {
-                        viewModel.takeoffActivated = false
-                        viewModel.landActivated = true
+                        viewModel.updateThrottleInputStyle()
                     }
-                    
-
-                }
-                
-                ModernButtonView(
-                    title: viewModel.stickyThrottle ? "Free Manual Throttle Mode" : "Sticky Manual Throttle Mode",
-                    icon: "",
-                    color: .blue,
-                    isEnabled: true
-                ) {
-                    viewModel.updateThrottleInputStyle()
                 }
             }
         }
