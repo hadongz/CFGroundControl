@@ -95,8 +95,11 @@ final class HomeViewModel: ObservableObject {
     private var drone: Drone?
     private var discoveredDroneIP: String?
     
-    private let disposeBag = DisposeBag()
-    
+    private var disposeBag = DisposeBag()
+    private var connectionDisposeBag = DisposeBag()
+    private var manualControlDisposeBag = DisposeBag()
+    private var telemetryDisposeBag = DisposeBag()
+
     private let sessionRecorder = StreamingSessionRecorder()
     
     private var maxManualThrottle: Float = 0.75
@@ -153,26 +156,31 @@ final class HomeViewModel: ObservableObject {
     func armDrone() {
         guard let drone = drone, isMAVLinkConnected else { return }
         
-        resetStickValue()
-        resetTelemetryData()
-        
         drone.action.arm()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe()
+            .subscribe({ [weak self] _ in
+                guard let self = self else { return }
+                resetStickValue()
+                resetTelemetryData()
+                subscribeManualControl()
+            })
             .disposed(by: disposeBag)
     }
     
     func disarmDrone() {
         guard let drone = drone, isMAVLinkConnected else { return }
         
-        resetStickValue()
         saveSession()
         
         drone.action.kill()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe()
+            .subscribe({ [weak self] _ in
+                guard let self else { return }
+                resetStickValue()
+                unsubscribeManualControl()
+            })
             .disposed(by: disposeBag)
     }
     
@@ -184,19 +192,12 @@ final class HomeViewModel: ObservableObject {
         drone.param.getAllParams()
             .subscribe(on: MavSerialScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe(
-                onSuccess: { [weak self] params in
-                    print("Success get parameters: \(params.floatParams.count)")
-                    guard let self else { return }
-                    self.telemetryData.floatParams = params.floatParams
-                    self.isLoadingParameters = false
-                    self.parametersRefreshTrigger = UUID()
-                },
-                onFailure: { [weak self] error in
-                    print("Failed to get parameters: \(error)")
-                    self?.isLoadingParameters = false
-                }
-            )
+            .subscribe({ [weak self] result in
+                guard let self, let params = try? result.get() else { return }
+                telemetryData.floatParams = params.floatParams
+                isLoadingParameters = false
+                parametersRefreshTrigger = UUID()
+            })
             .disposed(by: disposeBag)
     }
     
@@ -210,18 +211,12 @@ final class HomeViewModel: ObservableObject {
         drone.param.setParamFloat(name: name, value: value)
             .subscribe(on: MavSerialScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe(
-                onCompleted: { [weak self] in
-                    guard let self else { return }
-                    print("Parameter \(name) updated to \(value)")
-                    if let index = telemetryData.floatParams.firstIndex(where: { $0.name == name }) {
-                        telemetryData.floatParams[index] = Param.FloatParam(name: name, value: value)
-                    }
-                },
-                onError: { error in
-                    print("Failed to update parameter \(name): \(error)")
+            .subscribe({ [weak self] _ in
+                guard let self else { return }
+                if let index = telemetryData.floatParams.firstIndex(where: { $0.name == name }) {
+                    telemetryData.floatParams[index] = Param.FloatParam(name: name, value: value)
                 }
-            )
+            })
             .disposed(by: disposeBag)
     }
     
@@ -232,13 +227,19 @@ final class HomeViewModel: ObservableObject {
         resetTelemetryData()
         drone?.disconnect()
         drone = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self else { return }
+            disposeBag = DisposeBag()
+            connectionDisposeBag = DisposeBag()
+            manualControlDisposeBag = DisposeBag()
+            telemetryDisposeBag = DisposeBag()
+        }
     }
     
     func stickDidConnect(_ controller: GCController) {
         isStickConnected = true
         currentContrroller = controller
         resetStickValue()
-        resetTelemetryData()
         setupInputControllers(controller)
     }
     
@@ -262,139 +263,14 @@ final class HomeViewModel: ObservableObject {
         for param in floatParams {
             updateParameter(name: param.name, value: param.value)
         }
-        
-        getAllParameters()
     }
     
     func updateThrottleInputStyle() {
         stickyThrottle.toggle()
     }
     
-    private func resetStickValue() {
-        pitchInput = 0.0
-        rollInput = 0.0
-        yawInput = 0.0
-        throttleInput = 0.0
-    }
-    
-    private func resetTelemetryData() {
-        telemetryData.attitudeData.removeAll()
-        telemetryData.motorData.removeAll()
-        telemetryData.targetAttitudeData.removeAll()
-        telemetryData.pidData.removeAll()
-        telemetryData.controlLoopTimeData.removeAll()
-    }
-    
-    
-    private func setupInputControllers(_ controller: GCController) {
-        guard let gamepad = controller.extendedGamepad else { return }
-        
-        let deadband: Float = 0.10
-        
-        gamepad.leftThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
-            guard let self else { return }
-            self.rollInput = applyDeadband(xValue, deadband: deadband)
-            self.pitchInput = applyDeadband(yValue, deadband: deadband)
-        }
-        
-        gamepad.rightThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
-            guard let self else { return }
-            
-            let updatedValue = applyDeadband(yValue, deadband: deadband)
-            
-            if stickyThrottle {
-                if updatedValue > 0.0 {
-                    throttleInput = min(maxManualThrottle, throttleInput + (updatedValue * 0.03))
-                } else {
-                    throttleInput = max(throttleInput + (updatedValue * 0.03), 0)
-                }
-            } else {
-                guard updatedValue >= 0.0 else { return }
-                throttleInput = updatedValue
-            }
-        }
-        
-        gamepad.buttonA.pressedChangedHandler = { [weak self] (input, value, isPressed) in
-            guard isPressed else { return }
-            DispatchQueue.main.async {
-                self?.disarmDrone()
-            }
-        }
-        
-        gamepad.buttonB.pressedChangedHandler = { [weak self] (input, value, isPressed) in
-            guard isPressed else { return }
-            DispatchQueue.main.async {
-                self?.armDrone()
-            }
-        }
-        
-        gamepad.buttonX.pressedChangedHandler = { [weak self] (input, value, isPressed) in
-            guard isPressed else { return }
-            DispatchQueue.main.async {
-                self?.recordOrStopSession()
-            }
-        }
-        
-        gamepad.buttonY.pressedChangedHandler = { [weak self] (input, value, isPressed) in
-            guard let self, isPressed, telemetryData.isArmed else { return }
-        }
-        
-        gamepad.buttonMenu.pressedChangedHandler = { [weak self] (input, value, isPressed) in
-            guard let self, isPressed else { return }
-            requestIMUCalibration()
-        }
-        
-        gamepad.buttonOptions?.pressedChangedHandler = { [weak self] (input, value, isPressed) in
-            guard let self, isPressed else { return }
-            requestBaroCalibration()
-        }
-    }
-    
-    private func applyDeadband(_ value: Float, deadband: Float) -> Float {
-        if abs(value) < deadband { return 0.0 }
-        let sign = value > 0 ? Float(maxManualThrottle) : Float(-maxManualThrottle)
-        let scaledValue = (abs(value) - deadband) / (1.0 - deadband)
-        return sign * scaledValue
-    }
-    
-    private func subscribeMAVLinkConnection() {
-        guard let drone else { return }
-        
-        drone.core.connectionState
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .do(onNext: { [weak self] connectionState in
-                guard let self else { return }
-                let lastConnectionState = isMAVLinkConnected
-                isMAVLinkConnected = connectionState.isConnected
-                connectionStatus = connectionState.isConnected ? "Connected to drone" : "Connecting..."
-                
-                if lastConnectionState != isMAVLinkConnected {
-                    resetTelemetryData()
-                    resetStickValue()
-                }
-                
-                if connectionState.isConnected {
-                    startTelemetrySubscriptions()
-                    subscribeManualControl()
-                } else {
-                    disconnectMAVLink()
-                }
-            })
-            .delay(.seconds(2), scheduler: MavScheduler)
-            .subscribe(onNext: { [weak self] connectionState in
-                guard let self else { return }
-                if connectionState.isConnected {
-                    DispatchQueue.main.async {
-                        self.getAllParameters()
-                    }
-                }
-            })
-            .disposed(by: disposeBag)
-    }
-    
-    private func subscribeManualControl() {
-        guard let drone else { return }
+    func subscribeManualControl() {
+        guard let drone, isMAVLinkConnected else { return }
         
         Observable<Int>
             .interval(.milliseconds(100), scheduler: MavSerialScheduler)
@@ -418,11 +294,11 @@ final class HomeViewModel: ObservableObject {
             .subscribe(onDisposed: {
                 print("Manual Control subscription disposed")
             })
-            .disposed(by: disposeBag)
+            .disposed(by: manualControlDisposeBag)
     }
     
-    private func startTelemetrySubscriptions() {
-        guard let drone = drone else { return }
+    func subsribeTelemetry() {
+        guard let drone, isMAVLinkConnected else { return }
         
         drone.telemetry.armed
             .subscribe(on: MavScheduler)
@@ -434,7 +310,7 @@ final class HomeViewModel: ObservableObject {
                 }
                 telemetryData.isArmed = armed
             })
-            .disposed(by: disposeBag)
+            .disposed(by: telemetryDisposeBag)
         
         drone.telemetry.attitudeEuler
             .distinctUntilChanged()
@@ -461,7 +337,7 @@ final class HomeViewModel: ObservableObject {
                     )
                 }
             })
-            .disposed(by: disposeBag)
+            .disposed(by: telemetryDisposeBag)
         
         drone.telemetry.position
             .distinctUntilChanged()
@@ -482,7 +358,7 @@ final class HomeViewModel: ObservableObject {
                 }
                 
             })
-            .disposed(by: disposeBag)
+            .disposed(by: telemetryDisposeBag)
         
         drone.telemetry.statusText
             .distinctUntilChanged()
@@ -604,7 +480,138 @@ final class HomeViewModel: ObservableObject {
                     telemetryData.statusText.append(statusText)
                 }
             })
-            .disposed(by: disposeBag)
+            .disposed(by: telemetryDisposeBag)
+    }
+    
+    func unsubscribeTelemetry() {
+        telemetryDisposeBag = DisposeBag()
+    }
+    
+    func unsubscribeManualControl() {
+        manualControlDisposeBag = DisposeBag()
+    }
+    
+    private func resetStickValue() {
+        pitchInput = 0.0
+        rollInput = 0.0
+        yawInput = 0.0
+        throttleInput = 0.0
+    }
+    
+    private func resetTelemetryData() {
+        telemetryData.attitudeData.removeAll()
+        telemetryData.motorData.removeAll()
+        telemetryData.targetAttitudeData.removeAll()
+        telemetryData.pidData.removeAll()
+        telemetryData.controlLoopTimeData.removeAll()
+    }
+    
+    
+    private func setupInputControllers(_ controller: GCController) {
+        guard let gamepad = controller.extendedGamepad else { return }
+        
+        let deadband: Float = 0.10
+        
+        gamepad.leftThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
+            guard let self else { return }
+            self.rollInput = applyDeadband(xValue, deadband: deadband)
+            self.pitchInput = applyDeadband(yValue, deadband: deadband)
+        }
+        
+        gamepad.rightThumbstick.valueChangedHandler = { [weak self] (input, xValue, yValue) in
+            guard let self else { return }
+            
+            let updatedValue = applyDeadband(yValue, deadband: deadband)
+            
+            if stickyThrottle {
+                if updatedValue > 0.0 {
+                    throttleInput = min(maxManualThrottle, throttleInput + (updatedValue * 0.03))
+                } else {
+                    throttleInput = max(throttleInput + (updatedValue * 0.03), 0)
+                }
+            } else {
+                guard updatedValue >= 0.0 else { return }
+                throttleInput = updatedValue
+            }
+        }
+        
+        gamepad.buttonA.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard isPressed else { return }
+            DispatchQueue.main.async {
+                self?.disarmDrone()
+            }
+        }
+        
+        gamepad.buttonB.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard isPressed else { return }
+            DispatchQueue.main.async {
+                self?.armDrone()
+            }
+        }
+        
+        gamepad.buttonX.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard isPressed else { return }
+            DispatchQueue.main.async {
+                self?.recordOrStopSession()
+            }
+        }
+        
+        gamepad.buttonY.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard let self, isPressed, telemetryData.isArmed else { return }
+            requestTakeOff()
+        }
+        
+        gamepad.buttonMenu.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard let self, isPressed else { return }
+            requestIMUCalibration()
+        }
+        
+        gamepad.buttonOptions?.pressedChangedHandler = { [weak self] (input, value, isPressed) in
+            guard let self, isPressed else { return }
+            requestBaroCalibration()
+        }
+    }
+    
+    private func applyDeadband(_ value: Float, deadband: Float) -> Float {
+        if abs(value) < deadband { return 0.0 }
+        let sign = value > 0 ? Float(maxManualThrottle) : Float(-maxManualThrottle)
+        let scaledValue = (abs(value) - deadband) / (1.0 - deadband)
+        return sign * scaledValue
+    }
+    
+    private func subscribeMAVLinkConnection() {
+        guard let drone else { return }
+        
+        drone.core.connectionState
+            .subscribe(on: MavScheduler)
+            .observe(on: MainScheduler.instance)
+            .do(onNext: { [weak self] connectionState in
+                guard let self else { return }
+                let lastConnectionState = isMAVLinkConnected
+                isMAVLinkConnected = connectionState.isConnected
+                connectionStatus = connectionState.isConnected ? "Connected to drone" : "Connecting..."
+                
+                if lastConnectionState != isMAVLinkConnected {
+                    resetTelemetryData()
+                    resetStickValue()
+                }
+                
+                if connectionState.isConnected {
+                    subsribeTelemetry()
+                } else {
+                    disconnectMAVLink()
+                }
+            })
+            .delay(.seconds(2), scheduler: MavScheduler)
+            .subscribe(onNext: { [weak self] connectionState in
+                guard let self else { return }
+                if connectionState.isConnected {
+                    DispatchQueue.main.async {
+                        self.getAllParameters()
+                    }
+                }
+            })
+            .disposed(by: connectionDisposeBag)
     }
     
     private func recordSession() {
@@ -625,9 +632,7 @@ final class HomeViewModel: ObservableObject {
         drone.calibration.calibrateGyro()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { _ in
-                debugPrint("Calibrate Gyro")
-            })
+            .subscribe()
             .disposed(by: disposeBag)
     }
     
@@ -637,9 +642,17 @@ final class HomeViewModel: ObservableObject {
         drone.calibration.calibrateLevelHorizon()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { _ in
-                debugPrint("Calibrate Level Horizon")
-            })
+            .subscribe()
+            .disposed(by: disposeBag)
+    }
+    
+    private func requestTakeOff() {
+        guard let drone else { return }
+        
+        drone.action.takeoff()
+            .subscribe(on: MavScheduler)
+            .observe(on: MainScheduler.instance)
+            .subscribe()
             .disposed(by: disposeBag)
     }
 }

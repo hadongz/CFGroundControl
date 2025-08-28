@@ -72,6 +72,16 @@ struct HomeView: View {
             )
             .ignoresSafeArea()
         )
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+            viewModel.subsribeTelemetry()
+            viewModel.subscribeManualControl()
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            viewModel.unsubscribeTelemetry()
+            viewModel.unsubscribeManualControl()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .GCControllerDidConnect)) { _ in
             guard let controller = GCController.controllers().first else { return }
             viewModel.stickDidConnect(controller)
