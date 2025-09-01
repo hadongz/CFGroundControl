@@ -171,13 +171,12 @@ final class HomeViewModel: ObservableObject {
     func disarmDrone() {
         guard let drone = drone, isMAVLinkConnected else { return }
         
-        saveSession()
-        
         drone.action.kill()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe({ [weak self] _ in
                 guard let self else { return }
+                saveSession()
                 resetStickValue()
                 unsubscribeManualControl()
             })
@@ -263,6 +262,8 @@ final class HomeViewModel: ObservableObject {
         for param in floatParams {
             updateParameter(name: param.name, value: param.value)
         }
+        
+        getAllParameters()
     }
     
     func updateThrottleInputStyle() {
@@ -301,6 +302,7 @@ final class HomeViewModel: ObservableObject {
         guard let drone, isMAVLinkConnected else { return }
         
         drone.telemetry.armed
+            .distinctUntilChanged()
             .subscribe(on: MavScheduler)
             .observe(on: MainScheduler.instance)
             .subscribe(onNext: { [weak self] armed in
