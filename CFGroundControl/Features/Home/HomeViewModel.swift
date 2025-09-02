@@ -102,7 +102,7 @@ final class HomeViewModel: ObservableObject {
 
     private let sessionRecorder = StreamingSessionRecorder()
     
-    private var maxManualThrottle: Float = 0.75
+    private var maxManualThrottle: Float = 0.55
     
     deinit {
         disconnectMAVLink()
@@ -575,10 +575,12 @@ final class HomeViewModel: ObservableObject {
     }
     
     private func applyDeadband(_ value: Float, deadband: Float) -> Float {
-        if abs(value) < deadband { return 0.0 }
-        let sign = value > 0 ? Float(maxManualThrottle) : Float(-maxManualThrottle)
+        if abs(value) <= deadband { return 0.0 }
+        
+        let sign: Float = value > 0 ? 1.0 : -1.0
         let scaledValue = (abs(value) - deadband) / (1.0 - deadband)
-        return sign * scaledValue
+        
+        return sign * scaledValue * maxManualThrottle
     }
     
     private func subscribeMAVLinkConnection() {
