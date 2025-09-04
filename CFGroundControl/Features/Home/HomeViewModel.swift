@@ -8,13 +8,6 @@
 import Foundation
 import Combine
 import GameController
-import Mavsdk
-import MavsdkServer
-import RxSwift
-import Network
-
-let MavScheduler = ConcurrentDispatchQueueScheduler(qos: .userInitiated)
-let MavSerialScheduler = SerialDispatchQueueScheduler(qos: .userInteractive)
 
 struct MotorData: Identifiable {
     let id: UUID = UUID()
@@ -59,7 +52,7 @@ struct TelemetryData {
     var controlLoopTimeData: CircularBuffer<ControlLoopTimeData> = CircularBuffer(capacity: 25)
     var altitudeData: CircularBuffer<AltitudeData> = CircularBuffer(capacity: 25)
     
-    var floatParams: [Param.FloatParam] = []
+    var floatParams: [MAVParamValuePacket] = []
 }
 
 final class HomeViewModel: ObservableObject {
@@ -91,266 +84,98 @@ final class HomeViewModel: ObservableObject {
     }
     
     var currentContrroller: GCController?
-    private var connectingDrone: Bool = false
-    private var drone: Drone?
-    private var discoveredDroneIP: String?
     
-    private var disposeBag = DisposeBag()
-    private var connectionDisposeBag = DisposeBag()
-    private var manualControlDisposeBag = DisposeBag()
-    private var telemetryDisposeBag = DisposeBag()
-
+    private let mavlinkManager = MAVLinkUDPManager.shared
     private let sessionRecorder = StreamingSessionRecorder()
-    
+
+    private var connectingDrone: Bool = false
     private var maxManualThrottle: Float = 0.55
-    
-    deinit {
-        disconnectMAVLink()
-    }
+    private var manualControlCancellable: AnyCancellable?
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         maxManualThrottleValue = String(maxManualThrottle)
     }
     
-    func connectToMAVLink() {
-        guard !connectingDrone else { return }
-        
-        connectionStatus = "Connecting to MAVSDK Server..."
-        connectingDrone = true
-        
-        let drone = Drone()
-        
-        drone.connect(systemAddress: "udp://:\(port)")
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .do(
-                onError: { [weak self] error in
-                    self?.connectionStatus = "Connection Failed: \(error.localizedDescription)"
-                    self?.errorMessage = error.localizedDescription
-                    self?.connectingDrone = false
-                },
-                onCompleted: { [weak self] in
-                    debugPrint("Connected to Drone")
-                    self?.drone = drone
-                    self?.subscribeMAVLinkConnection()
-                    self?.connectingDrone = false
+    func subscribeToMAVLink() {
+        mavlinkManager
+            .connectionStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self else { return }
+                switch status {
+                case .CONNECTING:
+                    connectingDrone = true
+                    connectionStatus = "Connecting to Drone"
+                case .CONNECTED:
+                    connectingDrone = false
+                    isMAVLinkConnected = true
+                    connectionStatus = "Connected"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { self.getAllParameters() }
+                case .FAILED:
+                    connectingDrone = false
+                    isMAVLinkConnected = false
+                    connectionStatus = "Failed to Connect"
+                    clenaup()
+                case .NOT_CONNECTED:
+                    connectingDrone = false
+                    isMAVLinkConnected = false
+                    connectionStatus = "Disconnected"
+                    clenaup()
                 }
-            )
-            .andThen(Observable<Any>.never())
-            .subscribe(onDisposed: { [weak self] in
-                guard let self else { return }
-                print("Connection disposed")
-                disconnectMAVLink()
-            })
-            .disposed(by: disposeBag)
-    }
-    
-    func recordOrStopSession() {
-        isRecordingSession ? saveSession() : recordSession()
-    }
-    
-    func armOrDisarmDrone() {
-        telemetryData.isArmed ? disarmDrone() : armDrone()
-    }
-    
-    func armDrone() {
-        guard let drone = drone, isMAVLinkConnected else { return }
-        
-        drone.action.arm()
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe({ [weak self] _ in
-                guard let self = self else { return }
-                resetStickValue()
-                resetTelemetryData()
-                subscribeManualControl()
-            })
-            .disposed(by: disposeBag)
-    }
-    
-    func disarmDrone() {
-        guard let drone = drone, isMAVLinkConnected else { return }
-        
-        drone.action.kill()
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe({ [weak self] _ in
-                guard let self else { return }
-                saveSession()
-                resetStickValue()
-                unsubscribeManualControl()
-            })
-            .disposed(by: disposeBag)
-    }
-    
-    func getAllParameters() {
-        guard let drone, !isLoadingParameters else { return }
-        
-        isLoadingParameters = true
-        
-        drone.param.getAllParams()
-            .subscribe(on: MavSerialScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe({ [weak self] result in
-                guard let self, let params = try? result.get() else { return }
-                telemetryData.floatParams = params.floatParams
-                isLoadingParameters = false
-                parametersRefreshTrigger = UUID()
-            })
-            .disposed(by: disposeBag)
-    }
-    
-    func refreshParameters() {
-        getAllParameters()
-    }
-    
-    func updateParameter(name: String, value: Float?) {
-        guard let drone = drone, let value = value else { return }
-        
-        drone.param.setParamFloat(name: name, value: value)
-            .subscribe(on: MavSerialScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe({ [weak self] _ in
-                guard let self else { return }
-                if let index = telemetryData.floatParams.firstIndex(where: { $0.name == name }) {
-                    telemetryData.floatParams[index] = Param.FloatParam(name: name, value: value)
-                }
-            })
-            .disposed(by: disposeBag)
-    }
-    
-    func disconnectMAVLink() {
-        isMAVLinkConnected = false
-        connectionStatus = "Disconnected"
-        resetStickValue()
-        resetTelemetryData()
-        drone?.disconnect()
-        drone = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            guard let self else { return }
-            disposeBag = DisposeBag()
-            connectionDisposeBag = DisposeBag()
-            manualControlDisposeBag = DisposeBag()
-            telemetryDisposeBag = DisposeBag()
-        }
-    }
-    
-    func stickDidConnect(_ controller: GCController) {
-        isStickConnected = true
-        currentContrroller = controller
-        resetStickValue()
-        setupInputControllers(controller)
-    }
-    
-    func stickDidDisconnect() {
-        isStickConnected = false
-        currentContrroller = nil
-        resetStickValue()
-    }
-    
-    func updateMaxManualThrottle(_ value: String) {
-        if let value = Float(value), abs(value) >= 0.0 && abs(value) <= 1.0 {
-            maxManualThrottle = value
-        } else {
-            maxManualThrottleValue = String(maxManualThrottle)
-        }
-    }
-    
-    func updateParametersFromLastSession() {
-        let floatParams = sessionRecorder.getLastParametersData()
-        
-        for param in floatParams {
-            updateParameter(name: param.name, value: param.value)
-        }
-        
-        getAllParameters()
-    }
-    
-    func updateThrottleInputStyle() {
-        stickyThrottle.toggle()
-    }
-    
-    func subscribeManualControl() {
-        guard let drone, isMAVLinkConnected else { return }
-        
-        Observable<Int>
-            .interval(.milliseconds(100), scheduler: MavSerialScheduler)
-            .filter { [weak self] _ in
-                guard let self else { return false }
-                return telemetryData.isArmed
             }
-            .flatMap({ [weak self] _ -> Observable<Void> in
-                guard let self else { return .empty() }
-                return drone.manualControl
-                    .setManualControlInput(
-                        x: pitchInput,
-                        y: rollInput,
-                        z: yawInput,
-                        r: throttleInput
-                    )
-                    .andThen(Observable.just(()))
-                    .catch { _ in return Observable.just(()) }
-            })
-            .retry()
-            .subscribe(onDisposed: {
-                print("Manual Control subscription disposed")
-            })
-            .disposed(by: manualControlDisposeBag)
-    }
-    
-    func subsribeTelemetry() {
-        guard let drone, isMAVLinkConnected else { return }
+            .store(in: &cancellables)
         
-        drone.telemetry.armed
-            .distinctUntilChanged()
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { [weak self] armed in
+        mavlinkManager
+            .heartbeatPacket
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] packet in
                 guard let self else { return }
-                if telemetryData.isArmed != armed {
+                if telemetryData.isArmed != packet.isArmed {
                     resetStickValue()
                 }
-                telemetryData.isArmed = armed
-            })
-            .disposed(by: telemetryDisposeBag)
+                telemetryData.isArmed = packet.isArmed
+            }
+            .store(in: &cancellables)
         
-        drone.telemetry.attitudeEuler
-            .distinctUntilChanged()
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { [weak self] attitudeEuler in
+        mavlinkManager
+            .attitudePacket
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] packet in
                 guard let self else { return }
                 
                 let timestamp = Date()
                 let data = EulerAngleData(
                     timestamp: timestamp,
-                    roll: attitudeEuler.rollDeg,
-                    pitch: attitudeEuler.pitchDeg,
-                    yaw: attitudeEuler.yawDeg
+                    roll: packet.rollDeg,
+                    pitch: packet.pitchDeg,
+                    yaw: packet.yawDeg
                 )
                 
                 telemetryData.attitudeData.append(data)
                 
                 if isRecordingSession {
                     sessionRecorder.writeAttitude(
-                        roll: attitudeEuler.rollDeg,
-                        pitch: attitudeEuler.pitchDeg,
-                        yaw: attitudeEuler.yawDeg
+                        roll: packet.rollDeg,
+                        pitch: packet.pitchDeg,
+                        yaw: packet.yawDeg
                     )
                 }
-            })
-            .disposed(by: telemetryDisposeBag)
+            }
+            .store(in: &cancellables)
         
-        drone.telemetry.position
-            .distinctUntilChanged()
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { [weak self] pos in
+        mavlinkManager
+            .altitudePacket
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] packet in
                 guard let self else { return }
                 let data = AltitudeData(
                     timestamp: Date(),
-                    absoluteAltitude: pos.absoluteAltitudeM,
-                    relativeAltitude: pos.relativeAltitudeM
+                    absoluteAltitude: packet.absoluteAltitude,
+                    relativeAltitude: packet.relativeAltitude
                 )
                 
                 telemetryData.altitudeData.append(data)
@@ -358,17 +183,27 @@ final class HomeViewModel: ObservableObject {
                 if (isRecordingSession) {
                     sessionRecorder.writeAltitude(absoulte: data.absoluteAltitude, relative: data.relativeAltitude)
                 }
-                
-            })
-            .disposed(by: telemetryDisposeBag)
+            }
+            .store(in: &cancellables)
         
-        drone.telemetry.statusText
-            .distinctUntilChanged()
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe(onNext: { [weak self] status in
+        mavlinkManager
+            .paramListPacket
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] packet in
                 guard let self else { return }
-                let statusText = status.text
+                isLoadingParameters = false
+                telemetryData.floatParams = packet
+                parametersRefreshTrigger = UUID()
+            }
+            .store(in: &cancellables)
+        
+        mavlinkManager
+            .statusTextPacket
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] packet in
+                guard let self else { return }
+                let statusText = packet.text
                 let timestamp = Date()
                 
                 if statusText.hasPrefix("DBG:") {
@@ -481,33 +316,112 @@ final class HomeViewModel: ObservableObject {
                 } else {
                     telemetryData.statusText.append(statusText)
                 }
-            })
-            .disposed(by: telemetryDisposeBag)
+            }
+            .store(in: &cancellables)
     }
     
-    func unsubscribeTelemetry() {
-        telemetryDisposeBag = DisposeBag()
+    func connectToMAVLink() {
+        guard !connectingDrone, !isMAVLinkConnected else { return }
+        
+        mavlinkManager.connect()
     }
     
-    func unsubscribeManualControl() {
-        manualControlDisposeBag = DisposeBag()
+    func recordOrStopSession() {
+        isRecordingSession ? saveSession() : recordSession()
     }
     
-    private func resetStickValue() {
-        pitchInput = 0.0
-        rollInput = 0.0
-        yawInput = 0.0
-        throttleInput = 0.0
+    func armOrDisarmDrone() {
+        telemetryData.isArmed ? disarmDrone() : armDrone()
     }
     
-    private func resetTelemetryData() {
-        telemetryData.attitudeData.removeAll()
-        telemetryData.motorData.removeAll()
-        telemetryData.targetAttitudeData.removeAll()
-        telemetryData.pidData.removeAll()
-        telemetryData.controlLoopTimeData.removeAll()
+    func armDrone() {
+        guard isMAVLinkConnected else { return }
+        mavlinkManager.actionArm()
+        subscribeManualControl()
     }
     
+    func disarmDrone() {
+        guard isMAVLinkConnected else { return }
+        mavlinkManager.actionDisarm()
+        unsubscribeManualControl()
+    }
+    
+    func getAllParameters() {
+        guard isMAVLinkConnected, !isLoadingParameters else { return }
+        
+        isLoadingParameters = true
+        mavlinkManager.actionRequestParamList()
+    }
+    
+    func refreshParameters() {
+        getAllParameters()
+    }
+    
+    func updateParameter(name: String, value: Float?) {
+        guard let value else { return }
+        
+        mavlinkManager.actionSetParam(name, value)
+    }
+    
+    func disconnectMAVLink() {
+        mavlinkManager.disconnect()
+    }
+    
+    func stickDidConnect(_ controller: GCController) {
+        isStickConnected = true
+        currentContrroller = controller
+        resetStickValue()
+        setupInputControllers(controller)
+    }
+    
+    func stickDidDisconnect() {
+        isStickConnected = false
+        currentContrroller = nil
+        resetStickValue()
+    }
+    
+    func updateMaxManualThrottle(_ value: String) {
+        if let value = Float(value), abs(value) >= 0.0 && abs(value) <= 1.0 {
+            maxManualThrottle = value
+        } else {
+            maxManualThrottleValue = String(maxManualThrottle)
+        }
+    }
+    
+    func updateParametersFromLastSession() {
+        let floatParams = sessionRecorder.getLastParametersData()
+        guard floatParams.count > 0 else { return }
+        
+        mavlinkManager.removeParamList()
+        for param in floatParams {
+            updateParameter(name: param.id, value: param.value)
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            self?.getAllParameters()
+        }
+    }
+    
+    func updateThrottleInputStyle() {
+        stickyThrottle.toggle()
+    }
+    
+    private func subscribeManualControl() {
+        guard isMAVLinkConnected else { return }
+        
+        manualControlCancellable = Timer.publish(every: 0.05, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self, telemetryData.isArmed else { return }
+                mavlinkManager.actionManualControl(
+                    roll: Int16(rollInput * 1000.0),
+                    pitch: Int16(pitchInput * 1000.0),
+                    yaw: Int16(yawInput * 1000.0),
+                    throttle: Int16(throttleInput * 1000.0)
+                )
+            }
+    }
+
     
     private func setupInputControllers(_ controller: GCController) {
         guard let gamepad = controller.extendedGamepad else { return }
@@ -583,41 +497,6 @@ final class HomeViewModel: ObservableObject {
         return sign * scaledValue * maxManualThrottle
     }
     
-    private func subscribeMAVLinkConnection() {
-        guard let drone else { return }
-        
-        drone.core.connectionState
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .do(onNext: { [weak self] connectionState in
-                guard let self else { return }
-                let lastConnectionState = isMAVLinkConnected
-                isMAVLinkConnected = connectionState.isConnected
-                connectionStatus = connectionState.isConnected ? "Connected to drone" : "Connecting..."
-                
-                if lastConnectionState != isMAVLinkConnected {
-                    resetTelemetryData()
-                    resetStickValue()
-                }
-                
-                if connectionState.isConnected {
-                    subsribeTelemetry()
-                } else {
-                    disconnectMAVLink()
-                }
-            })
-            .delay(.seconds(2), scheduler: MavScheduler)
-            .subscribe(onNext: { [weak self] connectionState in
-                guard let self else { return }
-                if connectionState.isConnected {
-                    DispatchQueue.main.async {
-                        self.getAllParameters()
-                    }
-                }
-            })
-            .disposed(by: connectionDisposeBag)
-    }
-    
     private func recordSession() {
         guard telemetryData.isArmed, isMAVLinkConnected else { return }
         isRecordingSession = true
@@ -631,32 +510,47 @@ final class HomeViewModel: ObservableObject {
     }
     
     private func requestIMUCalibration() {
-        guard let drone else { return }
+        guard isMAVLinkConnected, !telemetryData.isArmed else { return }
         
-        drone.calibration.calibrateGyro()
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe()
-            .disposed(by: disposeBag)
+        mavlinkManager.actionCalibrateIMU()
     }
     
     private func requestBaroCalibration() {
-        guard let drone else { return }
+        guard isMAVLinkConnected, !telemetryData.isArmed else { return }
         
-        drone.calibration.calibrateLevelHorizon()
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe()
-            .disposed(by: disposeBag)
+        mavlinkManager.actionCalibrateBaro()
     }
     
     private func requestTakeOff() {
-        guard let drone else { return }
+        guard isMAVLinkConnected, telemetryData.isArmed else { return }
         
-        drone.action.takeoff()
-            .subscribe(on: MavScheduler)
-            .observe(on: MainScheduler.instance)
-            .subscribe()
-            .disposed(by: disposeBag)
+        mavlinkManager.actionTakeoff()
+    }
+    
+    private func unsubscribeManualControl() {
+        manualControlCancellable?.cancel()
+        manualControlCancellable = nil
+    }
+    
+    private func resetStickValue() {
+        pitchInput = 0.0
+        rollInput = 0.0
+        yawInput = 0.0
+        throttleInput = 0.0
+    }
+    
+    private func resetTelemetryData() {
+        telemetryData.attitudeData.removeAll()
+        telemetryData.motorData.removeAll()
+        telemetryData.targetAttitudeData.removeAll()
+        telemetryData.pidData.removeAll()
+        telemetryData.controlLoopTimeData.removeAll()
+    }
+    
+    private func clenaup() {
+        isMAVLinkConnected = false
+        resetStickValue()
+        resetTelemetryData()
+        unsubscribeManualControl()
     }
 }

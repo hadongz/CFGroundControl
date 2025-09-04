@@ -1,0 +1,6 @@
+[submodule "CFGroundControl/Resources/lib/mavlink"]
+	path = CFGroundControl/Resources/lib/mavlink
+	url = https://github.com/mavlink/c_library_v2.git
+[submodule "CFGroundControl/Resources/mavlib/include/mavlink"]
+	path = CFGroundControl/Resources/mavlib/include/mavlink
+	url = https://github.com/mavlink/c_library_v2.git

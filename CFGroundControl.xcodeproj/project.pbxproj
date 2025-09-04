@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		96182A602E3C99C100290794 /* Mavsdk in Frameworks */ = {isa = PBXBuildFile; productRef = 967505372E33848E003E57A2 /* Mavsdk */; };
-		96182A612E3C99C100290794 /* MavsdkServer in Frameworks */ = {isa = PBXBuildFile; productRef = 967505382E33848E003E57A2 /* MavsdkServer */; };
 		96B3050B2E427FAA0082CDE6 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 96B3050A2E427FAA0082CDE6 /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
@@ -45,8 +43,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				96182A612E3C99C100290794 /* MavsdkServer in Frameworks */,
-				96182A602E3C99C100290794 /* Mavsdk in Frameworks */,
 				96B3050B2E427FAA0082CDE6 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -90,8 +86,6 @@
 			);
 			name = CFGroundControl;
 			packageProductDependencies = (
-				967505372E33848E003E57A2 /* Mavsdk */,
-				967505382E33848E003E57A2 /* MavsdkServer */,
 				96B3050A2E427FAA0082CDE6 /* ZIPFoundation */,
 			);
 			productName = CFGroundControl;
@@ -110,6 +104,7 @@
 				TargetAttributes = {
 					967505252E33848C003E57A2 = {
 						CreatedOnToolsVersion = 16.2;
+						LastSwiftMigration = 1620;
 					};
 				};
 			};
@@ -123,7 +118,6 @@
 			mainGroup = 9675051D2E33848C003E57A2;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				967505362E33848E003E57A2 /* XCRemoteSwiftPackageReference "MAVSDK-Swift" */,
 				96B305092E427FAA0082CDE6 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -282,6 +276,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -314,6 +309,8 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "CFGroundControl/Resources/CFGroundControl-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -325,6 +322,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -357,6 +355,7 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "CFGroundControl/Resources/CFGroundControl-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -386,14 +385,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		967505362E33848E003E57A2 /* XCRemoteSwiftPackageReference "MAVSDK-Swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mavlink/MAVSDK-Swift";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.1;
-			};
-		};
 		96B305092E427FAA0082CDE6 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
@@ -405,16 +396,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		967505372E33848E003E57A2 /* Mavsdk */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 967505362E33848E003E57A2 /* XCRemoteSwiftPackageReference "MAVSDK-Swift" */;
-			productName = Mavsdk;
-		};
-		967505382E33848E003E57A2 /* MavsdkServer */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 967505362E33848E003E57A2 /* XCRemoteSwiftPackageReference "MAVSDK-Swift" */;
-			productName = MavsdkServer;
-		};
 		96B3050A2E427FAA0082CDE6 /* ZIPFoundation */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 96B305092E427FAA0082CDE6 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;

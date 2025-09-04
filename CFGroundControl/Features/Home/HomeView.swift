@@ -74,13 +74,12 @@ struct HomeView: View {
         )
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
-            viewModel.subsribeTelemetry()
-            viewModel.subscribeManualControl()
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
-            viewModel.unsubscribeTelemetry()
-            viewModel.unsubscribeManualControl()
+        }
+        .onViewDidLoad {
+            viewModel.subscribeToMAVLink()
         }
         .onReceive(NotificationCenter.default.publisher(for: .GCControllerDidConnect)) { _ in
             guard let controller = GCController.controllers().first else { return }
@@ -404,9 +403,9 @@ struct HomeView: View {
                         .cornerRadius(16)
                 } else {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 80)), count: 3), spacing: 16) {
-                        ForEach(viewModel.telemetryData.floatParams, id: \.name) { param in
+                        ForEach(viewModel.telemetryData.floatParams, id: \.uuid) { param in
                             ParamaterRowView(
-                                name: param.name,
+                                name: param.id,
                                 value: param.value,
                                 refreshTrigger: viewModel.parametersRefreshTrigger,
                                 onValueChanged: { paramName, newValue in

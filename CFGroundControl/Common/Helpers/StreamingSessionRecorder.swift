@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import Mavsdk
 
 final class StreamingSessionRecorder {
     
@@ -132,7 +131,7 @@ final class StreamingSessionRecorder {
         }
     }
     
-    func stopRecording(parameters: [Param.FloatParam]) {
+    func stopRecording(parameters: [MAVParamValuePacket]) {
         for (_, handle) in fileHandles {
             handle.closeFile()
         }
@@ -142,7 +141,7 @@ final class StreamingSessionRecorder {
         saveMetadata(parameters: parameters)
     }
     
-    func getLastParametersData() -> [Param.FloatParam] {
+    func getLastParametersData() -> [MAVParamValuePacket] {
         guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return [] }
         let sessionsDir = documentsDir.appendingPathComponent("DroneSessions")
         
@@ -155,12 +154,11 @@ final class StreamingSessionRecorder {
             let content = try String(contentsOf: latestSessionDir, encoding: .utf8)
             let result = content
                 .split(separator: "\n")
-                .compactMap { line -> Param.FloatParam? in
+                .compactMap { line -> MAVParamValuePacket? in
                     let value = line.split(separator: ",")
                     guard let floatValue = Float(value[1]) else { return nil }
-                    return Param.FloatParam(name: String(value[0]), value: floatValue)
+                    return MAVParamValuePacket(id: String(value[0]), value: floatValue)
                 }
-            
             return result
         } catch {
             debugPrint("Error reading CSV file: \(error)")
@@ -181,23 +179,23 @@ final class StreamingSessionRecorder {
         }
     }
     
-    private func saveAllParameters(_ parameters: [Param.FloatParam]) {
+    private func saveAllParameters(_ parameters: [MAVParamValuePacket]) {
         guard let sessionDir = sessionDirectory else { return }
         
         let fileURL = sessionDir.appendingPathComponent("all_parameters.csv")
         var csvText = "parameter_name,value\n"
         
-        let sortedParams = parameters.sorted { $0.name < $1.name }
+        let sortedParams = parameters.sorted { $0.id < $1.id }
         
         for param in sortedParams {
-            let escapedName = param.name.contains(",") ? "\"\(param.name)\"" : param.name
+            let escapedName = param.id.contains(",") ? "\"\(param.id)\"" : param.id
             csvText += "\(escapedName),\(param.value)\n"
         }
         
         try? csvText.write(to: fileURL, atomically: true, encoding: .utf8)
     }
     
-    private func saveMetadata(parameters: [Param.FloatParam]) {
+    private func saveMetadata(parameters: [MAVParamValuePacket]) {
         guard let sessionDir = sessionDirectory else { return }
         
         let fileURL = sessionDir.appendingPathComponent("session_info.json")
@@ -206,7 +204,7 @@ final class StreamingSessionRecorder {
             "session_end": dateFormatter.string(from: Date()),
             "total_parameters": parameters.count,
             "parameters_value": parameters.reduce(into: [String: Float]()) { dict, param in
-                dict[param.name] = param.value
+                dict[param.id] = param.value
             }
         ]
         
